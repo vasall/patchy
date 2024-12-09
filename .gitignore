@@ -3,7 +3,5 @@
 *.vim
 *.sw*
 
-.libs
-
-/testchamber
-/tools
+/obj
+/bin

@@ -1,0 +1,9 @@
+*.a
+*.o
+*.vim
+*.sw*
+
+.libs
+
+/testchamber
+/tools

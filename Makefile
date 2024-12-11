@@ -1,39 +1,24 @@
-# Compiler
-CC = gcc
+SRC_DIR 	:= src
+OBJ_DIR 	:= obj
+BIN_DIR 	:= bin
 
-# Directories
-SRC_DIR = src
-INC_DIR = inc
-OBJ_DIR = obj
-BIN_DIR = bin
+BIN 		:= $(BIN_DIR)/prog
+SRC 		:= $(wildcard $(SRC_DIR)/*.c)
+OBJ 		:= $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
-# Flags for compiler
-CFLAGS = -I$(INC_DIR) -Wall -Wextra -g
+CC		:= gcc
+CFLAGS   	:= -g -O0 -ansi -std=c89 -I./inc -pedantic -D_POSIX_C_SOURCE=200809L
+ERRFLAGS	:= -Wall -Wextra -Wmissing-prototypes -Wstrict-prototypes -Wold-style-definition 
 
-# Source and Object files
-SRCS = $(wildcard $(SRC_DIR)/*.c)
-OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
-
-# Target executable
-TARGET = $(BIN_DIR)/prog
-
-# Default target
-all: $(TARGET)
-
-# Rule for building the target
-$(TARGET): $(OBJS)
-	@mkdir -p $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
-
-# Rule for compiling .c files to .o files
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	@mkdir -p $(OBJ_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# Clean up object files and executable
-clean:
-	rm -rf $(OBJ_DIR)/*.o $(TARGET)
-
-# Phony targets
 .PHONY: all clean
 
+all: $(BIN)
+
+$(BIN): $(OBJ) | $(BIN_DIR)
+	$(CC) $^ -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(ERRFLAGS) -c $< -o $@
+
+clean:
+	@$(RM) -rv $(BIN_DIR) $(OBJ_DIR)

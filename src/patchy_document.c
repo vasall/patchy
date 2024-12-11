@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 
-PA_API s8 pa_init(struct pa_document *doc)
+PA_API s8 paInit(struct pa_document *doc)
 {
         if(!doc)
                 return -1;
@@ -19,11 +19,12 @@ PA_API s8 pa_init(struct pa_document *doc)
 }
 
 
-PA_API void pa_quit(struct pa_document *doc)
+PA_API void paQuit(struct pa_document *doc)
 {
         if(!doc)
                 return;
 
         pa_element_tree_destroy(&doc->element_tree);
 }
+
 

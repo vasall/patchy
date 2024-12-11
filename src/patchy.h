@@ -79,9 +79,9 @@ typedef double                  f64;
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-PA_LIB void *pa_malloc(s32 size);
-PA_LIB void *pa_realloc(void *p, s32 size);
-PA_LIB void pa_free(void *p);
+PA_LIB void *pa_mem_alloc(s32 size);
+PA_LIB void *pa_mem_realloc(void *p, s32 size);
+PA_LIB void  pa_mem_free(void *p);
 
 
 /* 
@@ -259,6 +259,9 @@ struct pa_event_handler {
 };
 
 
+PA_API void paEventMotion(void);
+PA_API void paEventScroll();
+
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  *
@@ -370,7 +373,7 @@ struct pa_document {
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 pa_init(struct pa_document *doc);
+PA_API s8 paInit(struct pa_document *doc);
 
 
 /*
@@ -378,6 +381,6 @@ PA_API s8 pa_init(struct pa_document *doc);
  *
  * @doc: Pointer to the document
  */
-PA_API void pa_quit(struct pa_document *doc);
+PA_API void paQuit(struct pa_document *doc);
 
 #endif /* _PATCHY_H */

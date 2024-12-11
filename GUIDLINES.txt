@@ -1,0 +1,17 @@
+# Naming Conventions
+
+
+| Type            | Convention         | Example              |
+|-----------------|--------------------|----------------------|
+| Struct          | pa_TitleCase       | pa_Document          |
+| Struct Members  | lower_case         | element_tree         |
+|                 |                    |                      |
+| Enum            | pa_eTitleCase      | pa_eTag              |
+| Enum Members    | PA_ALL_CAPS        | PA_BLOCK             |
+|                 |                    |                      |
+| Predefine       | PA_ALL_CAPS        | PA_ELEMENT_NAME_MAX  |
+| Macro           | PA_ALL_CAPS        | PA_FLAG(...)         |
+|                 |                    |                      |
+| INTERNAL        | xxx_lower_case     | doc_init(...)        |
+| LIB             | pa_xxx_lower_case  | pa_ele_create(...)   |
+| API             | paUpperCase        | paEventMotion(...)   |

@@ -70,6 +70,18 @@ typedef double                  f64;
 #define S64_MAX                9223372036854775807
 
 
+/* 
+ * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+ *
+ *              General Enumeration
+ *
+ * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+ */
+
+typedef enum {
+        PA_STATIC,
+        PA_DYNAMIC
+} PAenum;
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -79,10 +91,10 @@ typedef double                  f64;
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-PA_LIB void *pa_mem_alloc(s32 size);
-PA_LIB void *pa_mem_realloc(void *p, s32 size);
+PA_LIB void *pa_mem_alloc(void *p, s32 size);
 PA_LIB void  pa_mem_free(void *p);
-
+PA_LIB void  pa_mem_set(void *p, u8 b, s32 size);
+PA_LIB void  pa_mem_copy(void *dst, void *src, s32  size);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -102,28 +114,172 @@ PA_LIB void  pa_mem_free(void *p);
 /*
  * 
  */
-struct pa_string {
-        s16     length; /* The number of characters/glyphs */
+typedef struct {
+        s16 length;    /* The number of characters/glyphs */
 
-        s16     size;   /* The number of used bytes */
-        s16     alloc;  /* The number of allocated bytes */
+        s16 size;      /* The number of used bytes */
+        s16 alloc;     /* The number of allocated bytes */
 
-        char    *buf;   /* The buffer containing the string */
+        char *buffer;   /* The buffer containing the string */
+} pa_String;
+
+
+typedef struct {
+        PAenum mode;        
+
+        s16 entry_size; /* The size of a slot in bytes */
+
+        s16 count;  /* Number of used slots */
+        s16 alloc;  /* Number of allocated slots */
+
+        u8 *data;
+} pa_List;
+
+/*
+ * Initialize the list and preallocate the memory for the entries.
+ *
+ * @lst: Pointer to the list
+ * @memmode: The mode to use for this list(PA_STATIC, PA_DYNAMIC)
+ * @size: The size of a single entry in bytes
+ * @alloc: The number of slots to preallocate
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_LIB s8 paInitList(pa_List *lst, PAenum mode, s16 size, s16 alloc);
+
+/*
+ * Destroy a list and free the allocated memory.
+ *
+ * @lst: Pointer to the list
+ */
+PA_LIB void paDestroyList(pa_List *lst);
+
+/*
+ * Remove all entries from the list and reset it's attributes. This will not
+ * free memory.
+ *
+ * @lst: Pointer to the list
+ */
+PA_LIB void paClearList(pa_List *lst);
+
+/*
+ * Append entries to the end of the list. If the list is configured as static
+ * and the limit is reached, no more entries will be written. If the list is
+ * configured as dynamic, more memory will be allocated to fit all entries.
+ *
+ * @lst: Pointer to the list
+ * @ptr: Pointer to the data to write to the list
+ * @num: The number of entries to push to the list
+ *
+ * Returns: The number of entries written to the list or -1 if an error occurred
+ */
+PA_LIB s16 paPushList(pa_List *lst, void *ptr, s16 num);
+
+/*
+ * Pop entries from the end of the list and write them to the given pointer.
+ *
+ * @lst: Pointer to the list
+ * @out: A pointer to write the entries to
+ * @num: The number of entries to pop from the list
+ *
+ * Returns: The number of entries popped from the list or -1 if an error
+ *          occurred
+ */
+PA_LIB s16 paPopList(pa_List *lst, void *out, s16 num);
+
+/*
+ * Add entries to the beginning of the list. If the list is configured as
+ * static and the limit has been reached, no more entries will be added. If the
+ * list is configured as dynamic, the necessary memory to fit all entries will
+ * be allocated.
+ *
+ * @lst: Pointer to the list
+ * @ptr: A pointer to copy the entries from
+ * @num: The number of entries to write to the list
+ *
+ * Returns: The number of entries added to the list or -1 if an error occurred
+ */
+PA_LIB s16 paUnshiftList(pa_List *lst, void *ptr, s16 num);
+
+/*
+ * Get entries from the beginning of the list and write to the output-pointer.
+ *
+ * @lst: Pointer to the list
+ * @out: A pointer to write the entries to
+ * @num: The number of entries to take from the list
+ *
+ * Returns: The number of entries written to the output-pointer or -1 if an
+ *          error occurred
+ */
+PA_LIB s16 paShiftList(pa_List *lst, void *out, s16 num);
+
+/*
+ * Insert entries into the list
+ */
+PA_LIB s16 paInsertList(paList *lst, void *ptr, s16 start, s16 num);
+
+/*
+ * Copy the entries from the list without removing them.
+ *
+ * @lst: Pointer to the list
+ * @out: Pointer to write the entries to
+ * @start: The starting index to copy from
+ * @num: The number of elements to copy
+ *
+ * Returns: The number of written entries or -1 if an error occurred
+ */
+PA_LIB s16 paPeekList(pa_List *lst, void *out, s16 start, s16 num);
+
+/*
+ * Extract elements from the list from the starting index.
+ *
+ * @lst: Pointer to the list
+ * @out: Pointer to write the entries to
+ * @start: The starting offset
+ * @num: The number of entries to retrieve
+ *
+ * Returns: The number of retrieved elements or -1 if an error occurred
+ */
+PA_LIB s16 paGetList(pa_List *lst, void *out, s16 start, s16 num);
+
+/*
+ * Megre two lists into one. First copy the entries from the first list and then
+ * the second. This function will initialize the resulting list and allocate the
+ * necessary space. If either one of the lists are marked as static, the new
+ * list will also be marked as static. After using remember to destroy the input
+ * lists if you don't need them anymore.
+ *
+ * @in1: The first list
+ * @in2: The second list
+ * @out: The new list containing both lists
+ *
+ * Returns: The number of elements in the new list or -1 if an error occurred
+ */
+PA_LIB s16 paMergeList(pa_List *in1, pa_List *in2, pa_List *out);
+
+/*
+ * Create a new list and copy over entries from the source list. This will not
+ * modify the source in any way.
+ *
+ * @src: Pointer to the source list 
+ * @out: The pointer to the new list
+ * @start: The starting offset to start copying from
+ * @num: The number of elements to copy
+ *
+ * Returns: The number of entries in the new list or -1 if an error occurred
+ */
+PA_LIB s16 paDeriveList(pa_List *src, pa_List *out, s16 start, s16 num);
+
+
+struct pa_Table {
+
 };
 
-struct pa_tree {
+struct pa_Dictionary {
 
 };
 
-struct pa_list {
-
-};
-
-struct pa_table {
-
-};
-
-struct pa_dictionary {
+struct pa_Flex {
 
 };
 
@@ -137,56 +293,48 @@ struct pa_dictionary {
  */ 
 
 
-enum pa_resource_type {
+enum pa_eResourceType {
         PA_RES_IMAGE        = 1,
         PA_RES_ICON         = 2,
-        PA_RES_FONT         = 3,
-        PA_RES_TILE         = 4
+        PA_RES_FONT         = 3
 };
 
 
-struct pa_texture {
+struct pa_Texture {
 
 };
 
-struct pa_image {
+struct pa_Image {
 
 };
 
-struct pa_image_atlas {
+struct pa_ImageAtlas {
 
 };
 
-struct pa_icon {
+struct pa_Icon {
 
 };
 
-struct pa_icon_atlas {
+struct pa_IconAtlas {
 
 };
 
-struct pa_font {
+struct pa_Font {
 
 };
 
-struct pa_font_atlas {
+struct pa_FontAtlas {
 
 };
 
-struct pa_tile {
-
-};
-
-struct pa_tile_atlas {
-
-};
 
 /*
  * Contains all resources for the patchy-instance like textures, fonts and
  * icons.
  */
-struct pa_context {
-        
+struct pa_Context {
+
 };
 
 
@@ -199,25 +347,43 @@ struct pa_context {
  */
 
 /*
- * 
- */
-struct pa_stylesheet {
-
-};
-
-
-/*
  * A single style-attribute.
  */
-struct pa_style_attrib {
-        
+typedef struct {
+        enum wut_eSheetAttribId 	id;
+
+        enum wut_eSheetDatatype 	type;
+
+        union {
+                struct {
+                        struct wut_Flex         *pointer;
+                } flex;
+
+                struct {
+                        u32                     code;
+                        u32 _pad;
+                } hexcode;
+
+                struct {
+                        u8                      code;
+                        u8 _pad[7];
+                } keyword;
+        } value;      
+} pa_StyleAttribute;
+
+
+/*
+ * 
+ */
+struct pa_Stylesheet {
+
 };
 
 
 /*
  * 
  */
-struct pa_style {
+struct pa_Style {
 
 };
 
@@ -226,7 +392,7 @@ struct pa_style {
  * A class is a bundle of different style-attributes applies to all elements
  * tagged with the class-name.
  */
-struct pa_class {
+struct pa_Class {
 
 };
 
@@ -234,7 +400,7 @@ struct pa_class {
  * The typeclass is a bundle of different style-attributes applied to all
  * elements with a given type.
  */
-struct pa_type_class {
+struct pa_TypeClass {
 
 };
 
@@ -247,20 +413,25 @@ struct pa_type_class {
  */
 
 /*  */
-struct pa_event {
+typedef struct {
 
-};
+} pa_Event;
 
-typedef s8 (*pa_event_callback)(struct pa_event evt, void *data);
+typedef s8 (*pa_event_callback)(struct pa_Event evt, void *data);
 
 /*  */
-struct pa_event_handler {
+typedef struct {
 
-};
+} pa_EventHandler;
 
 
+PA_API void paEventBegin(void);
+PA_API void paEventEnd(void);
+
+PA_API void paEventKey(void);
 PA_API void paEventMotion(void);
-PA_API void paEventScroll();
+PA_API void paEventButton(void);
+PA_API void paEventScroll(void);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -273,7 +444,7 @@ PA_API void paEventScroll();
 #define PA_ELEMENT_NAME_MAX     128
 
 
-enum pa_tag {
+enum pa_eTag {
         PA_UNDEF        = -1,
         PA_BODY         =  0,
         PA_BLOCK        =  1,
@@ -286,10 +457,10 @@ enum pa_tag {
 /*
  * 
  */
-struct pa_element {
+typedef struct {
         /*  */
         char    name[PA_ELEMENT_NAME_MAX];
-        
+
         /*  */
         s16     parent;
 
@@ -305,7 +476,7 @@ struct pa_element {
 
         /*  */
         s16     pipe_next;
-};
+} pa_Element;
 
 
 #define PA_ELEMENT_TREE_MIN     128
@@ -313,14 +484,14 @@ struct pa_element {
 /*
  * 
  */
-struct pa_element_tree {
+typedef struct {
         /* A list containing all elements */
-        struct pa_element       *elements;
+        struct pa_Element       *elements;
         s16                     element_number;
 
         /* The z-index pipeline to handle overlap */
         s16                     pipe_start;
-};
+} pa_ElementTree;
 
 
 /* 
@@ -336,7 +507,7 @@ struct pa_element_tree {
  * information about size, position and possible references to required
  * resources from the context.
  */
-struct pa_patch {
+struct pa_Patch {
 
 };
 
@@ -344,7 +515,7 @@ struct pa_patch {
  * A batch contains multiple patches using the same material, ie. the same
  * transparency/opaquenes, same resources, same color, etc.
  */
-struct pa_batch {
+struct pa_Batch {
 
 };
 
@@ -362,8 +533,8 @@ struct pa_batch {
  * parts.
  * Use one per window.
  */
-struct pa_document {
-       struct pa_element_tree   element_tree; 
+struct pa_Document {
+        pa_ElementTree   element_tree; 
 };
 
 /*
@@ -373,7 +544,7 @@ struct pa_document {
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInit(struct pa_document *doc);
+PA_API s8 paInit(struct pa_Document *doc);
 
 
 /*
@@ -381,6 +552,6 @@ PA_API s8 paInit(struct pa_document *doc);
  *
  * @doc: Pointer to the document
  */
-PA_API void paQuit(struct pa_document *doc);
+PA_API void paQuit(struct pa_Document *doc);
 
 #endif /* _PATCHY_H */

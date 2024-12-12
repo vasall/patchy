@@ -7,12 +7,14 @@
 
 int main(void)
 {
-        struct pa_document document;
+        struct pa_Document document;
 
         printf("Starting the program...\n");
 
 
-        pa_init(&document);
+        paInit(&document);
 
 
+        paQuit(&document);
+        return 0;
 }

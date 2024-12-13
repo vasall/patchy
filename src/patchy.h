@@ -94,7 +94,8 @@ typedef enum {
 PA_LIB void *pa_mem_alloc(void *p, s32 size);
 PA_LIB void  pa_mem_free(void *p);
 PA_LIB void  pa_mem_set(void *p, u8 b, s32 size);
-PA_LIB void  pa_mem_copy(void *dst, void *src, s32  size);
+PA_LIB void  pa_mem_copy(void *dst, void *src, s32 size);
+PA_LIB void  pa_mem_move(void *dst, void *src, s32 size);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -106,8 +107,8 @@ PA_LIB void  pa_mem_copy(void *dst, void *src, s32  size);
 
 #define PA_STRING_GROWTH        1.5
 
-#define PA_STRING_START           0
-#define PA_STRING_END            -1
+#define PA_START                  0
+#define PA_END                   -1
 
 #define PA_STRING_AUTO           -1
 
@@ -136,16 +137,38 @@ typedef struct {
 } pa_List;
 
 /*
- * Initialize the list and preallocate the memory for the entries.
+ * Initialize the list.
+ * If the list is configured as static the memory-space has to be provided to
+ * fit the entries and will not be rescaled to fit more. If the list if
+ * configured as dynamic, the memory will be allocated during initialization and
+ * will scale to fit all added entries. Either way the function paDestroyList()
+ * should always be called if the list is no longer used.
+ *
+ * Example on how to store 20 integers using static memory:
+ * ...
+ * pa_List lst;
+ * int slots = 20;
+ * void *lst_mem = malloc(slots * sizeof(int));
+ * paInitList(&lst, PA_STATIC, sizeof(int), slots, lst_mem);
+ * ...
+ *
+ * Example on how to store 20 integers using dynamic memory:
+ * ...
+ * pa_List lst;
+ * int slots = 20;
+ * paInitList(&lst, PA_DYNAMIC, sizeof(int), slots, NULL);
+ * ...
+ *
  *
  * @lst: Pointer to the list
  * @memmode: The mode to use for this list(PA_STATIC, PA_DYNAMIC)
  * @size: The size of a single entry in bytes
  * @alloc: The number of slots to preallocate
+ * @mem: Pointer to the memory space
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB s8 paInitList(pa_List *lst, PAenum mode, s16 size, s16 alloc);
+PA_LIB s8 paInitList(pa_List *lst, PAenum mode, s16 size, s16 alloc, void *mem);
 
 /*
  * Destroy a list and free the allocated memory.
@@ -168,12 +191,12 @@ PA_LIB void paClearList(pa_List *lst);
  * configured as dynamic, more memory will be allocated to fit all entries.
  *
  * @lst: Pointer to the list
- * @ptr: Pointer to the data to write to the list
+ * @src: Pointer to the data to write to the list
  * @num: The number of entries to push to the list
  *
  * Returns: The number of entries written to the list or -1 if an error occurred
  */
-PA_LIB s16 paPushList(pa_List *lst, void *ptr, s16 num);
+PA_LIB s16 paPushList(pa_List *lst, void *src, s16 num);
 
 /*
  * Pop entries from the end of the list and write them to the given pointer.
@@ -185,7 +208,7 @@ PA_LIB s16 paPushList(pa_List *lst, void *ptr, s16 num);
  * Returns: The number of entries popped from the list or -1 if an error
  *          occurred
  */
-PA_LIB s16 paPopList(pa_List *lst, void *out, s16 num);
+PA_LIB s16 paPopList(pa_List *lst, void *dst, s16 num);
 
 /*
  * Add entries to the beginning of the list. If the list is configured as
@@ -194,12 +217,12 @@ PA_LIB s16 paPopList(pa_List *lst, void *out, s16 num);
  * be allocated.
  *
  * @lst: Pointer to the list
- * @ptr: A pointer to copy the entries from
+ * @src: A pointer to copy the entries from
  * @num: The number of entries to write to the list
  *
  * Returns: The number of entries added to the list or -1 if an error occurred
  */
-PA_LIB s16 paUnshiftList(pa_List *lst, void *ptr, s16 num);
+PA_LIB s16 paUnshiftList(pa_List *lst, void *src, s16 num);
 
 /*
  * Get entries from the beginning of the list and write to the output-pointer.
@@ -211,12 +234,12 @@ PA_LIB s16 paUnshiftList(pa_List *lst, void *ptr, s16 num);
  * Returns: The number of entries written to the output-pointer or -1 if an
  *          error occurred
  */
-PA_LIB s16 paShiftList(pa_List *lst, void *out, s16 num);
+PA_LIB s16 paShiftList(pa_List *lst, void *dst, s16 num);
 
 /*
  * Insert entries into the list
  */
-PA_LIB s16 paInsertList(paList *lst, void *ptr, s16 start, s16 num);
+PA_LIB s16 paInsertList(paList *lst, void *src, s16 start, s16 num);
 
 /*
  * Copy the entries from the list without removing them.
@@ -228,7 +251,7 @@ PA_LIB s16 paInsertList(paList *lst, void *ptr, s16 start, s16 num);
  *
  * Returns: The number of written entries or -1 if an error occurred
  */
-PA_LIB s16 paPeekList(pa_List *lst, void *out, s16 start, s16 num);
+PA_LIB s16 paPeekList(pa_List *lst, void *dst, s16 start, s16 num);
 
 /*
  * Extract elements from the list from the starting index.
@@ -240,35 +263,7 @@ PA_LIB s16 paPeekList(pa_List *lst, void *out, s16 start, s16 num);
  *
  * Returns: The number of retrieved elements or -1 if an error occurred
  */
-PA_LIB s16 paGetList(pa_List *lst, void *out, s16 start, s16 num);
-
-/*
- * Megre two lists into one. First copy the entries from the first list and then
- * the second. This function will initialize the resulting list and allocate the
- * necessary space. If either one of the lists are marked as static, the new
- * list will also be marked as static. After using remember to destroy the input
- * lists if you don't need them anymore.
- *
- * @in1: The first list
- * @in2: The second list
- * @out: The new list containing both lists
- *
- * Returns: The number of elements in the new list or -1 if an error occurred
- */
-PA_LIB s16 paMergeList(pa_List *in1, pa_List *in2, pa_List *out);
-
-/*
- * Create a new list and copy over entries from the source list. This will not
- * modify the source in any way.
- *
- * @src: Pointer to the source list 
- * @out: The pointer to the new list
- * @start: The starting offset to start copying from
- * @num: The number of elements to copy
- *
- * Returns: The number of entries in the new list or -1 if an error occurred
- */
-PA_LIB s16 paDeriveList(pa_List *src, pa_List *out, s16 start, s16 num);
+PA_LIB s16 paGetList(pa_List *lst, void *dst, s16 start, s16 num);
 
 
 struct pa_Table {

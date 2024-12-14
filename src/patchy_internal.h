@@ -21,7 +21,7 @@
  * Returns: Either a pointer to the newly created string object or NULL if an
  *          error occurred
  */
-PA_API pa_String *pa_str_create(s16 alloc);
+PA_API struct pa_string *pa_str_create(s16 alloc);
 
 
 /*
@@ -29,7 +29,7 @@ PA_API pa_String *pa_str_create(s16 alloc);
  *
  * @str: Pointer to the string object
  */
-PA_API void pa_str_destroy(pa_String *str);
+PA_API void pa_str_destroy(struct pa_string *str);
 
 
 /*
@@ -37,7 +37,7 @@ PA_API void pa_str_destroy(pa_String *str);
  *
  * @str: Pointer to the string object
  */
-PA_API void pa_str_clear(pa_String *str);
+PA_API void pa_str_clear(struct pa_string *str);
 
 
 /*
@@ -47,7 +47,7 @@ PA_API void pa_str_clear(pa_String *str);
  *
  * Returns: The C-string
  */
-PA_API char *pa_str_get(pa_String *str);
+PA_API char *pa_str_get(struct pa_string *str);
 
 
 /*
@@ -60,8 +60,8 @@ PA_API char *pa_str_get(pa_String *str);
  *
  * Returns: Either a new string or NULL if an error occurred
  */
-PA_API pa_String *pa_str_combine(pa_String *str1,
-                pa_String *str2);
+PA_API struct pa_string *pa_str_combine(struct pa_string *str1,
+                struct pa_string *str2);
 
 
 /*
@@ -77,7 +77,7 @@ PA_API pa_String *pa_str_combine(pa_String *str1,
  *
  * Returns: 0 if successfull or -1 if an error occurred
  */
-PA_API s8 pa_str_write(pa_String *str, s16 off, char *txt, s16 len);
+PA_API s8 pa_str_write(struct pa_string *str, s16 off, char *txt, s16 len);
 
 
 /*
@@ -91,7 +91,7 @@ PA_API s8 pa_str_write(pa_String *str, s16 off, char *txt, s16 len);
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 pa_str_extend(pa_String *str, s16 off, char *txt, s16 len);
+PA_API s8 pa_str_extend(struct pa_string *str, s16 off, char *txt, s16 len);
 
 
 /*
@@ -103,7 +103,7 @@ PA_API s8 pa_str_extend(pa_String *str, s16 off, char *txt, s16 len);
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 pa_str_crop(pa_String *str, s16 start, s16 end);
+PA_API s8 pa_str_crop(struct pa_string *str, s16 start, s16 end);
 
 
 /* 
@@ -121,7 +121,7 @@ PA_API s8 pa_str_crop(pa_String *str, s16 start, s16 end);
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB s8 pa_etr_init(pa_ElementTree *tree);
+PA_LIB s8 pa_etr_init(struct pa_element_tree *tree);
 
 
 /*
@@ -129,7 +129,7 @@ PA_LIB s8 pa_etr_init(pa_ElementTree *tree);
  *
  * @tree: Pointer to the element-tree
  */
-PA_LIB void pa_etr_destroy(pa_ElementTree *tree);
+PA_LIB void pa_etr_destroy(struct pa_element_tree *tree);
 
 
 /*
@@ -140,7 +140,7 @@ PA_LIB void pa_etr_destroy(pa_ElementTree *tree);
  * Returns: Pointer to the memory space for the new element or NULL if an error
  *          occurred
  */
-PA_LIB struct pa_Element *pa_ele_new(struct pa_Document *doc);
+PA_LIB struct pa_Element *pa_ele_new(struct pa_document *doc);
 
 
 /*
@@ -151,7 +151,7 @@ PA_LIB struct pa_Element *pa_ele_new(struct pa_Document *doc);
  * Returns: Either a pointer to the element at the given index or NULL if an
  *          error occurred
  */
-PA_LIB struct pa_Element *pa_ele_by_index(struct pa_Document *doc, s16 idx);
+PA_LIB struct pa_Element *pa_ele_by_index(struct pa_document *doc, s16 idx);
 
 
 #endif /* _PATCHY_INTERNAL_H */

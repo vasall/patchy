@@ -6,58 +6,78 @@
 #include <string.h>
 
 
-PA_INTERN void lst_ensure_fit(pa_List *lst, s32 num)
-{
-        s32 new_num = lst->number + num;
-        s32 new_alloc;
+/*
+ * LIST
+ */
 
-        if(new_num > alloc && lst->mode == PA_DYNAMIC) {
+PA_INTERN void lst_ensure_fit(struct pa_list *lst, s32 num)
+{
+        s32 new_num = lst->count + num;
+        s32 new_alloc;
+        s32 new_size;
+        void *p;
+
+        if(new_num > lst->alloc && lst->mode == PA_DYNAMIC) {
                 new_alloc = lst->alloc * 1.5; 
-                lst->data = pa_mem_alloc(lst->data, alloc * lst->entry_size);
+                new_size = new_alloc * lst->entry_size;
+                if(!(p = pa_mem_alloc(lst->memory, lst->data, new_size)))
+                        return;
+
+                lst->data = p;
                 lst->alloc = new_alloc;
         }
 }
 
 
-PA_LIB s8 paInitList(pa_List *lst, PAenum mode, s16 size, s16 alloc, void *mem)
+PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem, 
+                s16 size, s16 alloc)
 {
         s32 tmp;
 
-        lst->mode = mode;
+        lst->memory = mem;
+        lst->mode = PA_DYNAMIC;
         lst->entry_size = size;
         lst->count = 0;
         lst->alloc = alloc;
-
-        if(mode == PA_DYNAMIC) {
-                tmp = lst->alloc * lst->entry_size;
-                if(!(lst->data = pa_mem_alloc(NULL, tmp))) {
-                        return -1;
-                }
-        }
-        else {
-                lst->data = mem;
+                
+        tmp = lst->alloc * lst->entry_size;
+        if(!(lst->data = pa_mem_alloc(lst->memory, NULL, tmp))) {
+                return -1;
         }
 
         paClearList(lst);
         return 0;
 }
 
-PA_LIB void paDestroyList(pa_List *lst)
+PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf)
+{
+        lst->memory = NULL;
+        lst->mode = PA_STATIC;
+        lst->entry_size = size;
+        lst->count = 0;
+        lst->alloc = alloc;
+        lst->data = buf;
+
+        paClearList(lst);
+        return 0;
+}
+
+PA_LIB void paDestroyList(struct pa_list *lst)
 {
         if(lst->mode == PA_DYNAMIC) {
-                pa_mem_free(lst->data);
+                pa_mem_free(lst->memory, lst->data);
         }
 }
 
-PA_LIB void paClearList(pa_List *lst)
+PA_LIB void paClearList(struct pa_list *lst)
 {
         pa_mem_set(lst->data, 0, lst->alloc * lst->entry_size);
 }
 
-PA_LIB s16 paPushList(pa_List *lst, void *src, s16 num)
+PA_LIB s16 paPushList(struct pa_list *lst, void *src, s16 num)
 {
-        s32 open_slots;
-        s32 fit_number;
+        s16 open_slots;
+        s16 entry_number;
         s32 offset;
         s32 size;
 
@@ -65,81 +85,81 @@ PA_LIB s16 paPushList(pa_List *lst, void *src, s16 num)
         lst_ensure_fit(lst, num);
 
         /* Figure out how many entries can be written to the list */
-        open_slot = lst->alloc - lst->number;
-        fit_number = num > open_slot ? open_slot : num;
+        open_slots = lst->alloc - lst->count;
+        entry_number = num > open_slots ? open_slots : num;
 
         /* Copy entries to list */
-        offset = lst->number * lst->entry_size;
-        size = fit_number * lst->entry_size;
-        pa_mem_copy(lst->data + off, src, size);
+        offset = lst->count * lst->entry_size;
+        size = entry_number * lst->entry_size;
+        pa_mem_copy(lst->data + offset, src, size);
 
         /* Update number of entries in list and return number of written */
-        lst->number += fit_number;
-        return fit_num;
+        lst->count += entry_number;
+        return entry_number;
 }
 
-PA_LIB s16 paPopList(pa_List *lst, void *dst, s16 num)
+PA_LIB s16 paPopList(struct pa_list *lst, void *dst, s16 num)
 {
-        s32 entry_number;
-        s32 entry_left;
+        s16 entry_number;
         s32 size;
         s32 offset;
 
         /* Figure out how many entries can be returned */
-        entry_number = num > lst->number ? lst->number : num;
+        entry_number = num > lst->count ? lst->count : num;
 
         /* Copy entries from list */
         size = entry_number * lst->entry_size;
-        offset = (lst->number * lst->entry_size) - size;
+        offset = (lst->count * lst->entry_size) - size;
         pa_mem_copy(dst, lst->data + offset, size);
 
         /* Update the number of entries in the list and return */
-        lst->number -= entry_number;
+        lst->count -= entry_number;
         return entry_number;
 }
 
-PA_LIB s16 paUnshiftList(pa_List *lst, void *src, s16 num)
+PA_LIB s16 paUnshiftList(struct pa_list *lst, void *src, s16 num)
 {
         s16 open_slots;
         s16 entry_number;
-        s16 entry_left;
-        s16 size;
+        s32 size;
+        s32 mov_size;
 
         /* If configured as dynamic, scale to fit new entries */
         lst_ensure_fit(lst, num);
 
         /* Figure out how many entries can be written to the list */
-        open_slots = lst->alloc - lst->number;
+        open_slots = lst->alloc - lst->count;
         entry_number = num > open_slots ? open_slots : num;
         size = entry_number * lst->entry_size;
 
-        /* Move the entries at the beginning to make place */
-        pa_mem_move(lst->data + size, lst->data, size);
+        /* Move all entries back to make space at the beginning */
+        mov_size = lst->count * lst->entry_size;
+        pa_mem_move(lst->data + size, lst->data, mov_size);
 
         /* Now copy over the data from the source */
         pa_mem_copy(lst->data, src, size);
 
         /* Update the number of entries in the list and return */
-        lst->number += entry_number;
+        lst->count += entry_number;
         return entry_number;
 }
 
-PA_LIB s16 paShiftList(pa_List *lst, void *dst, s16 num)
+PA_LIB s16 paShiftList(struct pa_list *lst, void *dst, s16 num)
 {
-        s32 entry_number;
-        s32 entry_left;
+        s16 entry_number;
+        s16 entry_left;
         s32 size;
         s32 offset;
 
         /* Figure out how many entries can be returned */
-        entry_number = num > lst->number ? lst->number : num;
+        entry_number = num > lst->count ? lst->count : num;
 
         /* Copy entries from list */
         size = entry_number * lst->entry_size;
         pa_mem_copy(dst, lst->data, size);
 
         /* Move the rest of the entries forward to close the gap */
-        entry_left = lst->number - entry_number;
+        entry_left = lst->count - entry_number;
         if(entry_left > 0) {
                 offset = size;
                 size = entry_left * lst->entry_size;
@@ -147,54 +167,54 @@ PA_LIB s16 paShiftList(pa_List *lst, void *dst, s16 num)
         }
 
         /* Update the number of entries in the list and return */
-        lst->number -= entry_number;
+        lst->count -= entry_number;
         return entry_number;
 }
 
-PA_LIB s16 paInsertList(paList *lst, void *src, s16 start, s16 num)
+PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num)
 {
-        s32 open_slots;
-        s32 entry_number;
+        s16 open_slots;
+        s16 entry_number;
         s32 offset;
         s32 size;
         s32 mov_offset;
         s32 mov_size;
 
         if(start == PA_END) {
-                start = lst->number;
+                start = lst->count;
         }
 
         /* If configured as dynamic, scale to fit new entries */
         lst_ensure_fit(lst, num);
 
         /* Figure out how many entries can be inserted into the list */
-        open_slots = lst->alloc - lst->number;
+        open_slots = lst->alloc - lst->count;
         entry_number = num > open_slots ? open_slots : num;
         size = entry_number * lst->entry_size;
         offset = start * lst->entry_size;
         
         /* Move entries back to make space */
-        mov_size = (lst->number - start) * lst->entry_size;
-        mov_offset = (lst->number * lst->entry_size) - mov_size;
+        mov_size = (lst->count - start) * lst->entry_size;
+        mov_offset = (lst->count * lst->entry_size) - mov_size;
         pa_mem_move(lst->data + mov_offset, lst->data + offset, mov_size);
 
         /* Copy over the entries from the source */
         pa_mem_copy(lst->data + offset, src, size);
 
         /* Update the number of entries in the list and return */
-        lst->number += entry_number;
+        lst->count += entry_number;
         return entry_number;
 }
 
-PA_LIB s16 paPeekList(pa_List *lst, void *dst, s16 start, s16 num)
+PA_LIB s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num)
 {
-        s32 entry_number;
-        s32 entry_left;
+        s16 entry_number;
+        s16 entry_left;
         s32 offset;
         s32 size;
 
         /* Figure out how many entries can actually be returned */
-        entry_left = lst->number - start;
+        entry_left = lst->count - start;
         entry_number = num > entry_left ? entry_left : num;
 
         /* Copy over the entries */
@@ -206,17 +226,17 @@ PA_LIB s16 paPeekList(pa_List *lst, void *dst, s16 start, s16 num)
         return entry_number;
 }
 
-PA_LIB s16 paGetList(pa_List *lst, void *dst, s16 start, s16 num)
+PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num)
 {
-        s32 entry_left;
-        s32 entry_number;
+        s16 entry_left;
+        s16 entry_number;
         s32 offset;
         s32 size;
         s32 mov_offset;
         s32 mov_size;
 
         /* Figure out how many entries can actually be returned */
-        entry_left = lst->number - start;
+        entry_left = lst->count - start;
         entry_number = num > entry_left ? entry_left : num;
 
         /* Copy over the entries */
@@ -226,10 +246,36 @@ PA_LIB s16 paGetList(pa_List *lst, void *dst, s16 start, s16 num)
 
         /* Move back the entries to fill the gap */
         mov_offset = offset + size;
-        mov_size = (lst->number - (start + entry_number)) * lst->entry_size;
-        pa_mem_move(lst->data + mov_offset, lst->data + offset, mov_size);
+        mov_size = (lst->count - (start + entry_number)) * lst->entry_size;
+        pa_mem_move(lst->data + offset, lst->data + mov_offset, mov_size);
 
         /* Update the number of entries in the list and return */
-        lst->number -= entry_number;
+        lst->count -= entry_number;
         return entry_number;
 }
+
+PA_API void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass,
+                enum pa_iteration_direction dir)
+{
+        void *ptr;
+        s16 i;
+
+        if(dir == PA_FORWARD) {
+                for(i = 0; i < lst->count; i++) {
+                        ptr = lst->data + (i * lst->entry_size);
+                        if(fnc(ptr, i, pass)) return;
+                }
+        }
+        else {
+                for(i = lst->count - 1; i >= 0; i--) {
+                        ptr = lst->data + (i * lst->entry_size);
+                        if(fnc(ptr, i, pass)) return;
+                }
+
+        }
+}
+
+/*
+ * FLEX
+ */
+

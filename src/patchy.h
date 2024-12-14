@@ -70,6 +70,8 @@ typedef double                  f64;
 #define S64_MAX                9223372036854775807
 
 
+#define PA_IGNORE(x)           (void)(x)
+
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  *
@@ -78,10 +80,23 @@ typedef double                  f64;
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-typedef enum {
-        PA_STATIC,
-        PA_DYNAMIC
-} PAenum;
+
+enum pa_tag_type {
+        PA_UNDEF        = 0,
+        PA_BODY         = 1,
+        PA_BLOCK        = 2,
+        PA_TEXT         = 3,
+        PA_INPUT        = 4,
+        PA_IMAGE        = 5,
+        PA_CUSTOM       = 6
+};
+
+enum pa_iteration_direction {
+       PA_FORWARD,
+       PA_BACKWARD
+};
+
+
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -91,11 +106,49 @@ typedef enum {
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-PA_LIB void *pa_mem_alloc(void *p, s32 size);
-PA_LIB void  pa_mem_free(void *p);
-PA_LIB void  pa_mem_set(void *p, u8 b, s32 size);
-PA_LIB void  pa_mem_copy(void *dst, void *src, s32 size);
-PA_LIB void  pa_mem_move(void *dst, void *src, s32 size);
+enum pa_memory_mode {
+        PA_DYNAMIC,
+        PA_STATIC
+};
+
+struct pa_allocator {
+        void *(*alloc)(s32 size);
+        void *(*realloc)(void *p, s32 size);
+        void (*free)(void *p);
+};
+
+struct pa_memory {
+        enum pa_memory_mode mode;
+        struct pa_allocator allocator;
+};
+
+/*
+ * Allocate memory to fit the given number of bytes. If some memory has already
+ * been allocated and is given through the pointer-parameter, the memory will
+ * instead be reallocated. In case reallocation fails, the existing memory will
+ * not be corrupted, but NULL will be returned.
+ *
+ * @mem: Poiner to the memory-manager
+ * @[p]: Current memory pointer
+ * @size: The requested number of bytes
+ *
+ * Returns: A pointer to the memory or NULL if an error occurred
+ */
+PA_LIB void *pa_mem_alloc(struct pa_memory *mem, void *p, s32 size);
+
+/*
+ * Free the allocated memory if the mode is set to dynamic. In case of static
+ * memory nothing will happen.
+ *
+ * @mem: Pointer to the memory-manager
+ * @p: Pointer to the memory-space to free
+ */
+PA_LIB void pa_mem_free(struct pa_memory *mem, void *p);
+
+PA_LIB void pa_mem_set(void *p, u8 v, s32 size);
+PA_LIB void pa_mem_zero(void *p, s32 size);
+PA_LIB void pa_mem_copy(void *dst, void *src, s32 size);
+PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -115,18 +168,18 @@ PA_LIB void  pa_mem_move(void *dst, void *src, s32 size);
 /*
  * 
  */
-typedef struct {
+struct pa_string {
         s16 length;    /* The number of characters/glyphs */
 
         s16 size;      /* The number of used bytes */
         s16 alloc;     /* The number of allocated bytes */
 
         char *buffer;   /* The buffer containing the string */
-} pa_String;
+};
 
-
-typedef struct {
-        PAenum mode;        
+struct pa_list {
+        struct pa_memory *memory;
+        enum pa_memory_mode mode;
 
         s16 entry_size; /* The size of a slot in bytes */
 
@@ -134,48 +187,56 @@ typedef struct {
         s16 alloc;  /* Number of allocated slots */
 
         u8 *data;
-} pa_List;
+};
+
+typedef s8 (*pa_list_func)(void *ent, s16 idx, void *data);
 
 /*
- * Initialize the list.
- * If the list is configured as static the memory-space has to be provided to
- * fit the entries and will not be rescaled to fit more. If the list if
- * configured as dynamic, the memory will be allocated during initialization and
- * will scale to fit all added entries. Either way the function paDestroyList()
- * should always be called if the list is no longer used.
- *
- * Example on how to store 20 integers using static memory:
- * ...
- * pa_List lst;
- * int slots = 20;
- * void *lst_mem = malloc(slots * sizeof(int));
- * paInitList(&lst, PA_STATIC, sizeof(int), slots, lst_mem);
- * ...
- *
- * Example on how to store 20 integers using dynamic memory:
- * ...
- * pa_List lst;
- * int slots = 20;
- * paInitList(&lst, PA_DYNAMIC, sizeof(int), slots, NULL);
- * ...
- *
+ * Initialize the list and configure as dynamic. The memory will be allocated 
+ * during initialization and will scale to fit all added entries. To prevent
+ * memory leaks call paDestroyList() after use.
  *
  * @lst: Pointer to the list
+ * @mem: Pointer to the memory-manager
  * @memmode: The mode to use for this list(PA_STATIC, PA_DYNAMIC)
  * @size: The size of a single entry in bytes
- * @alloc: The number of slots to preallocate
- * @mem: Pointer to the memory space
+ * @alloc: The initial number of slots to preallocate
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB s8 paInitList(pa_List *lst, PAenum mode, s16 size, s16 alloc, void *mem);
+PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
+                s16 size, s16 alloc);
+
+/*
+ * Create a static list onto a buffer. This list will only operate on the given
+ * memory and will not adjust size to fit new elements if the limits has been
+ * reached. Note that the memory-buffer has to be big enough to fit the given
+ * number of slots for the entries set through the alloc-parameters. After use
+ * call paDestroyList() and then free the memory yourself.
+ *
+ * Example on how to store 20 integers:
+ * ...
+ * struct pa_list list;
+ * int numbers = 20;
+ * void *buf = malloc(numbers * sizeof(int));
+ * paInitListFixed(&lst, sizeof(int), numbers, buf);
+ * ...
+ *
+ * @lst: Pointer to the list
+ * @size: The size of a single entry in bytes
+ * @alloc: The number of slots
+ * @buf: The buffer to store the entries in
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf);
 
 /*
  * Destroy a list and free the allocated memory.
  *
  * @lst: Pointer to the list
  */
-PA_LIB void paDestroyList(pa_List *lst);
+PA_LIB void paDestroyList(struct pa_list *lst);
 
 /*
  * Remove all entries from the list and reset it's attributes. This will not
@@ -183,7 +244,7 @@ PA_LIB void paDestroyList(pa_List *lst);
  *
  * @lst: Pointer to the list
  */
-PA_LIB void paClearList(pa_List *lst);
+PA_LIB void paClearList(struct pa_list *lst);
 
 /*
  * Append entries to the end of the list. If the list is configured as static
@@ -196,7 +257,7 @@ PA_LIB void paClearList(pa_List *lst);
  *
  * Returns: The number of entries written to the list or -1 if an error occurred
  */
-PA_LIB s16 paPushList(pa_List *lst, void *src, s16 num);
+PA_LIB s16 paPushList(struct pa_list *lst, void *src, s16 num);
 
 /*
  * Pop entries from the end of the list and write them to the given pointer.
@@ -208,7 +269,7 @@ PA_LIB s16 paPushList(pa_List *lst, void *src, s16 num);
  * Returns: The number of entries popped from the list or -1 if an error
  *          occurred
  */
-PA_LIB s16 paPopList(pa_List *lst, void *dst, s16 num);
+PA_LIB s16 paPopList(struct pa_list *lst, void *dst, s16 num);
 
 /*
  * Add entries to the beginning of the list. If the list is configured as
@@ -222,7 +283,7 @@ PA_LIB s16 paPopList(pa_List *lst, void *dst, s16 num);
  *
  * Returns: The number of entries added to the list or -1 if an error occurred
  */
-PA_LIB s16 paUnshiftList(pa_List *lst, void *src, s16 num);
+PA_LIB s16 paUnshiftList(struct pa_list *lst, void *src, s16 num);
 
 /*
  * Get entries from the beginning of the list and write to the output-pointer.
@@ -234,12 +295,19 @@ PA_LIB s16 paUnshiftList(pa_List *lst, void *src, s16 num);
  * Returns: The number of entries written to the output-pointer or -1 if an
  *          error occurred
  */
-PA_LIB s16 paShiftList(pa_List *lst, void *dst, s16 num);
+PA_LIB s16 paShiftList(struct pa_list *lst, void *dst, s16 num);
 
 /*
- * Insert entries into the list
+ * Insert entries into the list at a certain position.
+ *
+ * @lst: Pointer to the list
+ * @src: Pointer to copy the entries from
+ * @start: The starting index to insert the entries to
+ * @num: The number of entries to insert
+ *
+ * Returns: The number of entries written to the list or -1 if an error occurred
  */
-PA_LIB s16 paInsertList(paList *lst, void *src, s16 start, s16 num);
+PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num);
 
 /*
  * Copy the entries from the list without removing them.
@@ -251,7 +319,7 @@ PA_LIB s16 paInsertList(paList *lst, void *src, s16 start, s16 num);
  *
  * Returns: The number of written entries or -1 if an error occurred
  */
-PA_LIB s16 paPeekList(pa_List *lst, void *dst, s16 start, s16 num);
+PA_LIB s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num);
 
 /*
  * Extract elements from the list from the starting index.
@@ -263,8 +331,20 @@ PA_LIB s16 paPeekList(pa_List *lst, void *dst, s16 start, s16 num);
  *
  * Returns: The number of retrieved elements or -1 if an error occurred
  */
-PA_LIB s16 paGetList(pa_List *lst, void *dst, s16 start, s16 num);
+PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
 
+/*
+ * Call a callback-function on every entry in the list. If the callback-function
+ * returns 1 the loop will stop. Otherwise the callback-function should always
+ * return 0.
+ *
+ * @lst: Pointer to the list
+ * @fnc: The callback function
+ * @pass: A pointer that will be passed onto every function-call
+ * @dir: The direction to iterate through the list(PA_FORWARD/PA_BACKWARD)
+ */
+PA_LIB void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass, 
+                enum pa_iteration_direction dir);
 
 struct pa_Table {
 
@@ -274,9 +354,50 @@ struct pa_Dictionary {
 
 };
 
-struct pa_Flex {
-
+/*
+ * ----  CODE-TABLE  ----
+ *
+ * OPERATOR
+ * 	
+ * 	0x01	(	
+ * 	0x02	)
+ * 	0x03	*
+ * 	0x04	+
+ * 	0x05	-
+ * 	0x06	/
+ *
+ * OPERAND
+ *
+ * 	0x11    const	     12	  Constant value
+ * 	0x12	PIXEL	    9px	  Pixel value, works like const
+ * 	0x13	PERCENT	  10pct	  Pct. used to scale with size value
+ * 	0x14	EM	    4em	  Faktor multp. with text size
+ *
+ * ----------------------
+ */
+struct pa_flex_token {
+        u8                      code;
+        f32                     value;
 };
+
+struct pa_flex {
+        struct pa_list         tokens;
+};
+
+/*
+ * 
+ */
+PA_LIB s8 wut_flx_init(struct pa_flex *flx, s16 tokens);
+
+/*
+ * 
+ */
+PA_LIB void wut_flx_destroy(struct pa_flex *flx);
+
+/*
+ * 
+ */
+PA_LIB void wut_flx_parse(struct pa_flex *flx, char *str);
 
 
 /* 
@@ -288,47 +409,11 @@ struct pa_Flex {
  */ 
 
 
-enum pa_eResourceType {
-        PA_RES_IMAGE        = 1,
-        PA_RES_ICON         = 2,
-        PA_RES_FONT         = 3
-};
-
-
-struct pa_Texture {
-
-};
-
-struct pa_Image {
-
-};
-
-struct pa_ImageAtlas {
-
-};
-
-struct pa_Icon {
-
-};
-
-struct pa_IconAtlas {
-
-};
-
-struct pa_Font {
-
-};
-
-struct pa_FontAtlas {
-
-};
-
-
 /*
  * Contains all resources for the patchy-instance like textures, fonts and
  * icons.
  */
-struct pa_Context {
+struct pa_context {
 
 };
 
@@ -344,33 +429,15 @@ struct pa_Context {
 /*
  * A single style-attribute.
  */
-typedef struct {
-        enum wut_eSheetAttribId 	id;
-
-        enum wut_eSheetDatatype 	type;
-
-        union {
-                struct {
-                        struct wut_Flex         *pointer;
-                } flex;
-
-                struct {
-                        u32                     code;
-                        u32 _pad;
-                } hexcode;
-
-                struct {
-                        u8                      code;
-                        u8 _pad[7];
-                } keyword;
-        } value;      
-} pa_StyleAttribute;
+struct pa_style_attribute {
+              
+};
 
 
 /*
  * 
  */
-struct pa_Stylesheet {
+struct pa_stylesheet {
 
 };
 
@@ -378,7 +445,7 @@ struct pa_Stylesheet {
 /*
  * 
  */
-struct pa_Style {
+struct pa_style {
 
 };
 
@@ -387,7 +454,7 @@ struct pa_Style {
  * A class is a bundle of different style-attributes applies to all elements
  * tagged with the class-name.
  */
-struct pa_Class {
+struct pa_class_style {
 
 };
 
@@ -395,7 +462,7 @@ struct pa_Class {
  * The typeclass is a bundle of different style-attributes applied to all
  * elements with a given type.
  */
-struct pa_TypeClass {
+struct pa_type_style {
 
 };
 
@@ -408,16 +475,16 @@ struct pa_TypeClass {
  */
 
 /*  */
-typedef struct {
+struct pa_event {
 
-} pa_Event;
+};
 
-typedef s8 (*pa_event_callback)(struct pa_Event evt, void *data);
+typedef s8 (*pa_event_callback)(struct pa_event evt, void *data);
 
 /*  */
-typedef struct {
+struct pa_event_handler {
 
-} pa_EventHandler;
+};
 
 
 PA_API void paEventBegin(void);
@@ -438,21 +505,10 @@ PA_API void paEventScroll(void);
 
 #define PA_ELEMENT_NAME_MAX     128
 
-
-enum pa_eTag {
-        PA_UNDEF        = -1,
-        PA_BODY         =  0,
-        PA_BLOCK        =  1,
-        PA_TEXT         =  2,
-        PA_INPUT        =  3,
-        PA_IMAGE        =  4,
-        PA_CUSTOM       =  5
-};
-
 /*
  * 
  */
-typedef struct {
+struct pa_element {
         /*  */
         char    name[PA_ELEMENT_NAME_MAX];
 
@@ -471,7 +527,7 @@ typedef struct {
 
         /*  */
         s16     pipe_next;
-} pa_Element;
+};
 
 
 #define PA_ELEMENT_TREE_MIN     128
@@ -479,14 +535,13 @@ typedef struct {
 /*
  * 
  */
-typedef struct {
+struct pa_element_tree {
         /* A list containing all elements */
-        struct pa_Element       *elements;
-        s16                     element_number;
+        struct pa_list          elements;
 
         /* The z-index pipeline to handle overlap */
         s16                     pipe_start;
-} pa_ElementTree;
+};
 
 
 /* 
@@ -502,7 +557,7 @@ typedef struct {
  * information about size, position and possible references to required
  * resources from the context.
  */
-struct pa_Patch {
+struct pa_patch {
 
 };
 
@@ -510,7 +565,7 @@ struct pa_Patch {
  * A batch contains multiple patches using the same material, ie. the same
  * transparency/opaquenes, same resources, same color, etc.
  */
-struct pa_Batch {
+struct pa_batch {
 
 };
 
@@ -528,8 +583,16 @@ struct pa_Batch {
  * parts.
  * Use one per window.
  */
-struct pa_Document {
-        pa_ElementTree   element_tree; 
+struct pa_document {
+        /*
+         * Memory manager to handle alloc, realloc, free, etc.
+         * For now it relies on the default allocation functions, but in the
+         * future it will be adapted to work with static memory and custom
+         * allocation functions.
+         */
+        struct pa_memory        memory;
+
+        struct pa_element_tree  element_tree; 
 };
 
 /*
@@ -539,7 +602,7 @@ struct pa_Document {
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInit(struct pa_Document *doc);
+PA_API s8 paInit(struct pa_document *doc);
 
 
 /*
@@ -547,6 +610,6 @@ PA_API s8 paInit(struct pa_Document *doc);
  *
  * @doc: Pointer to the document
  */
-PA_API void paQuit(struct pa_Document *doc);
+PA_API void paQuit(struct pa_document *doc);
 
 #endif /* _PATCHY_H */

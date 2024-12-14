@@ -3,10 +3,10 @@
 
 | Type            | Convention         | Example              |
 |-----------------|--------------------|----------------------|
-| Struct          | pa_TitleCase       | pa_Document          |
+| Struct          | pa_lower_case      | pa_document          |
 | Struct Members  | lower_case         | element_tree         |
 |                 |                    |                      |
-| Enum            | pa_eTitleCase      | pa_eTag              |
+| Enum            | pa_lower_case      | pa_tag_type          |
 | Enum Members    | PA_ALL_CAPS        | PA_BLOCK             |
 |                 |                    |                      |
 | Predefine       | PA_ALL_CAPS        | PA_ELEMENT_NAME_MAX  |

@@ -80,6 +80,10 @@ typedef double                  f64;
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
+enum pa_memory_mode {
+        PA_DYNAMIC      = 0,
+        PA_FIXED        = 1
+};
 
 enum pa_tag_type {
         PA_UNDEF        = 0,
@@ -91,11 +95,19 @@ enum pa_tag_type {
         PA_CUSTOM       = 6
 };
 
-enum pa_iteration_direction {
-       PA_FORWARD,
-       PA_BACKWARD
-};
+/* 
+ * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+ *
+ *              PREDEFINE ALL API STRUCTS
+ *
+ * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+ */
 
+struct pa_allocator;
+struct pa_memory;
+
+struct pa_list;
+struct pa_string;
 
 
 /* 
@@ -106,11 +118,6 @@ enum pa_iteration_direction {
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-enum pa_memory_mode {
-        PA_DYNAMIC,
-        PA_STATIC
-};
-
 struct pa_allocator {
         void *(*alloc)(s32 size);
         void *(*realloc)(void *p, s32 size);
@@ -118,9 +125,20 @@ struct pa_allocator {
 };
 
 struct pa_memory {
-        enum pa_memory_mode mode;
-        struct pa_allocator allocator;
+        enum pa_memory_mode     mode;
+        void                    *space;
+        struct pa_allocator     allocator;
 };
+
+/*
+ * Initialize the memory-manager and attach the default allocation functions to
+ * it. The memory manager will therefore also be configured as dynamic.
+ *
+ * @mem: Pointer to the memory-manager
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_LIB s8 pa_mem_init_default(struct pa_memory *mem);
 
 /*
  * Allocate memory to fit the given number of bytes. If some memory has already
@@ -145,9 +163,41 @@ PA_LIB void *pa_mem_alloc(struct pa_memory *mem, void *p, s32 size);
  */
 PA_LIB void pa_mem_free(struct pa_memory *mem, void *p);
 
+/*
+ * Set the all bytes in the given memory-space.
+ *
+ * @p: Pointer to the memory-space
+ * @v: The bytes
+ * @size: The number of bytes to set
+ */
 PA_LIB void pa_mem_set(void *p, u8 v, s32 size);
+
+/*
+ * Zero all bytes in a given memory-space.
+ *
+ * @p: Pointer to the memory-space
+ * @size: The number of bytes to zero out
+ */
 PA_LIB void pa_mem_zero(void *p, s32 size);
+
+/*
+ * Copy over memory. If the source and destination overlap, this function can
+ * overwrite the source while still reading from it, so watch out for this.
+ *
+ * @dst: Pointer to the destination
+ * @src: Pointer to the source
+ * @size: The number of bytes to copy
+ */
 PA_LIB void pa_mem_copy(void *dst, void *src, s32 size);
+
+/*
+ * This will move memory while checking that the source will not be overwritten
+ * while reading from it.
+ *
+ * @dst: Pointer to the destination
+ * @src: Pointer to the source
+ * @size: The number of bytes to move
+ */
 PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
 
 /* 
@@ -158,53 +208,157 @@ PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-#define PA_STRING_GROWTH        1.5
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      STRING
+ *
+ * TODO:
+ * - Implement UTF8-support
+ *
+ */
+
+#define PA_STRING_INITIAL_SIZE  128
 
 #define PA_START                  0
 #define PA_END                   -1
 
-#define PA_STRING_AUTO           -1
+#define PA_ALL                   -1
 
 /*
  * 
  */
 struct pa_string {
-        s16 length;    /* The number of characters/glyphs */
-
-        s16 size;      /* The number of used bytes */
-        s16 alloc;     /* The number of allocated bytes */
+        struct pa_memory *memory;
+        enum pa_memory_mode mode;
 
         char *buffer;   /* The buffer containing the string */
+
+        s16 length;     /* The number of characters in the string */
+        s32 size;       /* The number of used bytes */
+        s32 alloc;      /* The number of allocated bytes */
+};
+
+/*
+ * 
+ */
+PA_API s8 paInitString(struct pa_string *str, struct pa_memory *mem);
+
+/*
+ * 
+ */
+PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size);
+
+/*
+ * Write UTF8-characters to the string at the given offset-position. Both the
+ * offset aswell as the character number are defined as per-character-numbers.
+ * For example "I love you" would be 10 characters and "我爱你" would be
+ * 3 characters.
+ *
+ * @str: Pointer to the string
+ * @src: The source-buffer to copy from containing UTF8-formatted characters
+ * @off: The offset-position in characters
+ * @num: The number of characters to write to the string
+ *
+ * Returns: The number of written characters or -1 if an error occurred
+ */
+PA_API s16 paWriteString(struct pa_string *str, void *src, s16 off, s16 num);
+
+/*
+ * Copy characters from the string without removing them. The destination-buffer
+ * has to be preallocated to fit all the requested characters. The written
+ * string will be null-terminated.
+ *
+ * @str: Pointer to the string
+ * @dst: A pointer to the destination buffer
+ * @off: The character to start copying from
+ * @num: The number of characters to read from the string
+ *
+ * Returns: The number of copied characters or -1 if an error occurred
+ */
+PA_API s16 paCopyString(struct pa_string *str, void *dst, s16 off, s16 num);
+
+/*
+ * Read characters from the string while also removing them. The
+ * destination-buffer has to be preallocated to fit the requested characters.
+ * The written character-string will be null-terminated.
+ *
+ * @str: Pointer to the string
+ * @dst: A pointer to the destination buffer
+ * @off: The character to start reading from
+ *
+ * Returns: The number of read characters or -1 if an error occurred
+ */
+PA_API s16 paReadString(struct pa_string *str, void *dst, s16 off, s16 num);
+
+/*
+ * Get the pointer for the next character in the string.
+ * You can use the function like this to iterate through the string:
+ * ...
+ * struct pa_string str;
+ * void *chr = NULL;
+ * ...
+ * while((chr = paIterateString(&str, chr))) {
+ *      ..Do something
+ * }
+ * ...
+ *
+ * @str: Pointer to the string
+ * @chr: Pointer to the current character in the string
+ *
+ * Returns: The pointer to the next character in the string or NULL if there are
+ *          no more characters
+ */
+PA_API s16 paIterateString(struct pa_string *str, void *chr);
+
+/*
+ * Get the character in the string from the given byte-offset.
+ *
+ * @str: Pointer to the string
+ * @off: The byte-offset
+ *
+ * Returns: The character-number in the string or -1 if an error occurred
+ */
+
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      LIST
+ *
+ */
+
+struct pa_handle {
+        void    *pointer;
+        s32     index;
 };
 
 struct pa_list {
         struct pa_memory *memory;
         enum pa_memory_mode mode;
 
+        u8 *data;
+
         s16 entry_size; /* The size of a slot in bytes */
 
         s16 count;  /* Number of used slots */
         s16 alloc;  /* Number of allocated slots */
-
-        u8 *data;
 };
 
-typedef s8 (*pa_list_func)(void *ent, s16 idx, void *data);
+typedef s8 (*pa_list_func)(struct pa_handle *hdl, void *data);
 
 /*
- * Initialize the list and configure as dynamic. The memory will be allocated 
- * during initialization and will scale to fit all added entries. To prevent
- * memory leaks call paDestroyList() after use.
+ * Initialize the list. The memory will be allocated during initialization and
+ * and will scale to fit all new entries. After use call paDestroyList() to
+ * prevvent memory leaks.
  *
  * @lst: Pointer to the list
  * @mem: Pointer to the memory-manager
- * @memmode: The mode to use for this list(PA_STATIC, PA_DYNAMIC)
  * @size: The size of a single entry in bytes
  * @alloc: The initial number of slots to preallocate
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
+PA_API s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
                 s16 size, s16 alloc);
 
 /*
@@ -229,14 +383,14 @@ PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf);
+PA_API s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf);
 
 /*
  * Destroy a list and free the allocated memory.
  *
  * @lst: Pointer to the list
  */
-PA_LIB void paDestroyList(struct pa_list *lst);
+PA_API void paDestroyList(struct pa_list *lst);
 
 /*
  * Remove all entries from the list and reset it's attributes. This will not
@@ -244,7 +398,7 @@ PA_LIB void paDestroyList(struct pa_list *lst);
  *
  * @lst: Pointer to the list
  */
-PA_LIB void paClearList(struct pa_list *lst);
+PA_API void paClearList(struct pa_list *lst);
 
 /*
  * Append entries to the end of the list. If the list is configured as static
@@ -257,7 +411,7 @@ PA_LIB void paClearList(struct pa_list *lst);
  *
  * Returns: The number of entries written to the list or -1 if an error occurred
  */
-PA_LIB s16 paPushList(struct pa_list *lst, void *src, s16 num);
+PA_API s16 paPushList(struct pa_list *lst, void *src, s16 num);
 
 /*
  * Pop entries from the end of the list and write them to the given pointer.
@@ -269,7 +423,7 @@ PA_LIB s16 paPushList(struct pa_list *lst, void *src, s16 num);
  * Returns: The number of entries popped from the list or -1 if an error
  *          occurred
  */
-PA_LIB s16 paPopList(struct pa_list *lst, void *dst, s16 num);
+PA_API s16 paPopList(struct pa_list *lst, void *dst, s16 num);
 
 /*
  * Add entries to the beginning of the list. If the list is configured as
@@ -283,7 +437,7 @@ PA_LIB s16 paPopList(struct pa_list *lst, void *dst, s16 num);
  *
  * Returns: The number of entries added to the list or -1 if an error occurred
  */
-PA_LIB s16 paUnshiftList(struct pa_list *lst, void *src, s16 num);
+PA_API s16 paUnshiftList(struct pa_list *lst, void *src, s16 num);
 
 /*
  * Get entries from the beginning of the list and write to the output-pointer.
@@ -295,7 +449,7 @@ PA_LIB s16 paUnshiftList(struct pa_list *lst, void *src, s16 num);
  * Returns: The number of entries written to the output-pointer or -1 if an
  *          error occurred
  */
-PA_LIB s16 paShiftList(struct pa_list *lst, void *dst, s16 num);
+PA_API s16 paShiftList(struct pa_list *lst, void *dst, s16 num);
 
 /*
  * Insert entries into the list at a certain position.
@@ -307,7 +461,7 @@ PA_LIB s16 paShiftList(struct pa_list *lst, void *dst, s16 num);
  *
  * Returns: The number of entries written to the list or -1 if an error occurred
  */
-PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num);
+PA_API s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num);
 
 /*
  * Copy the entries from the list without removing them.
@@ -319,7 +473,7 @@ PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num);
  *
  * Returns: The number of written entries or -1 if an error occurred
  */
-PA_LIB s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num);
+PA_API s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num);
 
 /*
  * Extract elements from the list from the starting index.
@@ -331,7 +485,7 @@ PA_LIB s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num);
  *
  * Returns: The number of retrieved elements or -1 if an error occurred
  */
-PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
+PA_API s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
 
 /*
  * Call a callback-function on every entry in the list. If the callback-function
@@ -341,14 +495,20 @@ PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
  * @lst: Pointer to the list
  * @fnc: The callback function
  * @pass: A pointer that will be passed onto every function-call
- * @dir: The direction to iterate through the list(PA_FORWARD/PA_BACKWARD)
  */
-PA_LIB void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass, 
-                enum pa_iteration_direction dir);
+PA_API void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass);
 
-struct pa_Table {
+/*
+ * Call a callback-function from the last entry to the first. If the
+ * callback-function returns 1 the loop will stop. Otherwise the
+ * callback-fcuntion should always return 0.
+ *
+ * @lst: Pointer to the list
+ * @fnc: The callback function
+ * @pass: A pointer that will be passed onto every function-call
+ */
+PA_API void paApplyListBack(struct pa_list *lst, pa_list_func fnc, void *pass);
 
-};
 
 struct pa_Dictionary {
 

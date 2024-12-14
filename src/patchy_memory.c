@@ -3,18 +3,31 @@
 #include <stdlib.h>
 #include <string.h>
 
+
+PA_LIB s8 pa_mem_init_default(struct pa_memory *mem)
+{
+        mem->mode = PA_DYNAMIC;
+        mem->space = NULL;
+
+        mem->allocator.alloc = &malloc;
+        mem->allocator.realloc = &realloc;
+        mem->allocator.free = &free;
+        
+        return 0;
+}
+
 PA_LIB void *pa_mem_alloc(struct pa_memory *mem, void *p, s32 size)
 {
         if(p) {
-                return realloc(p, size);
+                return mem->allocator.realloc(p, size);
         }
 
-        return malloc(size);
+        return mem->allocator.alloc(size);
 }
 
 PA_LIB void pa_mem_free(struct pa_memory *mem, void *p)
 {
-        free(p);
+        mem->allocator.free(p);
 }
 
 PA_LIB void pa_mem_set(void *p, u8 v, s32 size)

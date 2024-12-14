@@ -7,7 +7,62 @@
 
 
 /*
- * LIST
+ * -----------------------------------------------------------------------------
+ *
+ *      STRING
+ *
+ */
+
+PA_INTERN void str_ensure_fit(struct pa_string *str, s32 size)
+{
+        s32 new_alloc;
+        void *p;
+
+        if(str->size + size > str->alloc && str->mode == PA_DYNAMIC) {
+                new_alloc = (str->size + size) * 1.5;
+                if(!(p = pa_mem_alloc(str->memory, str->buffer, new_alloc))) {
+                        return;
+                }
+                str->buffer = p;
+                str->alloc = new_alloc;
+        }
+}
+
+PA_API s8 paInitString(struct pa_string *str, struct pa_memory *mem)
+{
+        str->memory = mem;
+        str->mode = PA_DYNAMIC;
+
+        str->size = 0;
+        str->alloc = PA_STRING_INITIAL_SIZE;
+
+        if(!(str->buffer = pa_mem_alloc(str->memory, NULL, str->alloc))) {
+                return -1;
+        }
+        *str->buffer = 0;
+
+        return 0;
+}
+
+PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size)
+{
+        str->memory = NULL;
+        str->mode = PA_FIXED;
+
+        str->buffer = buf;
+        *str->buffer = 0;
+
+        str->size = 0;
+        str->alloc = size;
+        return 0;
+}
+
+
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      LIST
+ *
  */
 
 PA_INTERN void lst_ensure_fit(struct pa_list *lst, s32 num)
@@ -18,7 +73,7 @@ PA_INTERN void lst_ensure_fit(struct pa_list *lst, s32 num)
         void *p;
 
         if(new_num > lst->alloc && lst->mode == PA_DYNAMIC) {
-                new_alloc = lst->alloc * 1.5; 
+                new_alloc = new_num * 1.5; 
                 new_size = new_alloc * lst->entry_size;
                 if(!(p = pa_mem_alloc(lst->memory, lst->data, new_size)))
                         return;
@@ -52,7 +107,7 @@ PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
 PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf)
 {
         lst->memory = NULL;
-        lst->mode = PA_STATIC;
+        lst->mode = PA_FIXED;
         lst->entry_size = size;
         lst->count = 0;
         lst->alloc = alloc;
@@ -254,28 +309,29 @@ PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num)
         return entry_number;
 }
 
-PA_API void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass,
-                enum pa_iteration_direction dir)
+PA_API void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass)
 {
-        void *ptr;
-        s16 i;
+        s32 i;
+        struct pa_handle hdl;
 
-        if(dir == PA_FORWARD) {
-                for(i = 0; i < lst->count; i++) {
-                        ptr = lst->data + (i * lst->entry_size);
-                        if(fnc(ptr, i, pass)) return;
-                }
-        }
-        else {
-                for(i = lst->count - 1; i >= 0; i--) {
-                        ptr = lst->data + (i * lst->entry_size);
-                        if(fnc(ptr, i, pass)) return;
-                }
 
+        for(i = 0; i < lst->count; i++) {
+                hdl.pointer = lst->data + (i * lst->entry_size);
+                hdl.index = i;
+                if(fnc(&hdl, pass)) return;
         }
 }
 
-/*
- * FLEX
- */
+PA_API void paApplyListBack(struct pa_list *lst, pa_list_func fnc, void *pass)
+{
+        s32 i;
+        struct pa_handle hdl;
 
+
+        for(i = lst->count - 1; i >= 0; i--) {
+                hdl.pointer = lst->data + (i * lst->entry_size);
+                hdl.index = i;
+                if(fnc(&hdl, pass)) return;
+        }
+
+}

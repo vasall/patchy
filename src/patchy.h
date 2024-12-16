@@ -14,63 +14,35 @@
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */
 
-#include <stdint.h>
+/*
+ * Redefine NULL as it's not builtin-type for whatever reason. :(
+ */
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
 
-typedef uint8_t                 u8;
-typedef uint16_t                u16;
-typedef uint32_t                u32;
-typedef uint64_t                u64;
 
-typedef int8_t                  s8;
-typedef int16_t                 s16;
-typedef int32_t                 s32;
-typedef int64_t                 s64;
+typedef unsigned char           u8;
+typedef unsigned short          u16;
+typedef unsigned int            u32;
+typedef unsigned long           u64;
+
+typedef signed char             s8;
+typedef signed short            s16;
+typedef signed int              s32;
+typedef signed long             s64;
 
 typedef float                   f32;
 typedef double                  f64;
 
-/*
- * The size of the datatypes in bytes.
- */
-#define U8_S			1
-#define U16_S			2
-#define U32_S			4
-#define U64_S			8
-
-#define S8_S			1
-#define S16_S			2
-#define S32_S			4
-#define S64_S			8
-
-#define F32_S			4
-#define F64_S			8
-
-
-
-/*
- * The limits for the data types.
- */
-
-#define U8_MIN                 8
-#define U8_MAX                 255
-#define U16_MIN                0
-#define U16_MAX                65535
-#define U32_MIN                0
-#define U32_MAX                4294967295
-#define U64_MIN                0
-#define U64_MAX                18446744073709551615
-
-#define S8_MIN                 -128
-#define S8_MAX                 127
-#define S16_MIN                32768
-#define S16_MAX                32767
-#define S32_MIN                -2147483648
-#define S32_MAX                2147483647
-#define S64_MIN                -9223372036854775808
-#define S64_MAX                9223372036854775807
-
 
 #define PA_IGNORE(x)           (void)(x)
+
+
+#define PA_START                  0
+#define PA_END                   -1
+
+#define PA_ALL                   -1
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -119,8 +91,8 @@ struct pa_string;
  */
 
 struct pa_allocator {
-        void *(*alloc)(s32 size);
-        void *(*realloc)(void *p, s32 size);
+        void *(*alloc)(u64 size);
+        void *(*realloc)(void *p, u64 size);
         void (*free)(void *p);
 };
 
@@ -129,76 +101,6 @@ struct pa_memory {
         void                    *space;
         struct pa_allocator     allocator;
 };
-
-/*
- * Initialize the memory-manager and attach the default allocation functions to
- * it. The memory manager will therefore also be configured as dynamic.
- *
- * @mem: Pointer to the memory-manager
- *
- * Returns: 0 on success or -1 if an error occurred
- */
-PA_LIB s8 pa_mem_init_default(struct pa_memory *mem);
-
-/*
- * Allocate memory to fit the given number of bytes. If some memory has already
- * been allocated and is given through the pointer-parameter, the memory will
- * instead be reallocated. In case reallocation fails, the existing memory will
- * not be corrupted, but NULL will be returned.
- *
- * @mem: Poiner to the memory-manager
- * @[p]: Current memory pointer
- * @size: The requested number of bytes
- *
- * Returns: A pointer to the memory or NULL if an error occurred
- */
-PA_LIB void *pa_mem_alloc(struct pa_memory *mem, void *p, s32 size);
-
-/*
- * Free the allocated memory if the mode is set to dynamic. In case of static
- * memory nothing will happen.
- *
- * @mem: Pointer to the memory-manager
- * @p: Pointer to the memory-space to free
- */
-PA_LIB void pa_mem_free(struct pa_memory *mem, void *p);
-
-/*
- * Set the all bytes in the given memory-space.
- *
- * @p: Pointer to the memory-space
- * @v: The bytes
- * @size: The number of bytes to set
- */
-PA_LIB void pa_mem_set(void *p, u8 v, s32 size);
-
-/*
- * Zero all bytes in a given memory-space.
- *
- * @p: Pointer to the memory-space
- * @size: The number of bytes to zero out
- */
-PA_LIB void pa_mem_zero(void *p, s32 size);
-
-/*
- * Copy over memory. If the source and destination overlap, this function can
- * overwrite the source while still reading from it, so watch out for this.
- *
- * @dst: Pointer to the destination
- * @src: Pointer to the source
- * @size: The number of bytes to copy
- */
-PA_LIB void pa_mem_copy(void *dst, void *src, s32 size);
-
-/*
- * This will move memory while checking that the source will not be overwritten
- * while reading from it.
- *
- * @dst: Pointer to the destination
- * @src: Pointer to the source
- * @size: The number of bytes to move
- */
-PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -220,10 +122,8 @@ PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
 
 #define PA_STRING_INITIAL_SIZE  128
 
-#define PA_START                  0
-#define PA_END                   -1
-
-#define PA_ALL                   -1
+/* Check if byte is start of utf8-sequence */
+#define PA_ISUTF(c) (((c) & 0xC0) != 0x80)
 
 /*
  * 
@@ -235,34 +135,50 @@ struct pa_string {
         char *buffer;   /* The buffer containing the string */
 
         s16 length;     /* The number of characters in the string */
-        s32 size;       /* The number of used bytes */
+        s32 size;       /* The number of used bytes excl. null-terminator */
         s32 alloc;      /* The number of allocated bytes */
 };
 
 /*
- * 
+ * Initialize the string with dynamic memory which will be both used to
+ * preallocate memory during initialization and to ensure new characters will
+ * fit in the character-buffer.
+ *
+ * @str: Pointer to the string
+ * @mem: Pointer to the memory-manager
+ *
+ * Returns: 0 on success or -1 if an error occurred
  */
 PA_API s8 paInitString(struct pa_string *str, struct pa_memory *mem);
 
 /*
- * 
+ * Initialize the string using fixed memory for the character-buffer. This will
+ * mean the string will not scale to fit new characters if the limit has been
+ * reached.
+ *
+ * @str: Pointer to the string
+ * @buf: Pointer to the memory-buffer
+ * @size: The size of the memory-buffer in bytes
+ *
+ * Returns: 0 on success or -1 if an error occurred
  */
 PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size);
 
 /*
- * Write UTF8-characters to the string at the given offset-position. Both the
- * offset aswell as the character number are defined as per-character-numbers.
- * For example "I love you" would be 10 characters and "我爱你" would be
- * 3 characters.
+ * Write as many UTF8-characters to the string at the given character-offset as
+ * possible. If the string is configured as dynamic, the string will scale to
+ * fit all new characters.
+ * The characters in the source-buffer need to already be UTF8-encoded and if
+ * the given number is set to PA_ALL, the string needs to be null-terminated.
  *
  * @str: Pointer to the string
- * @src: The source-buffer to copy from containing UTF8-formatted characters
+ * @src: The source-buffer to copy from
  * @off: The offset-position in characters
  * @num: The number of characters to write to the string
  *
  * Returns: The number of written characters or -1 if an error occurred
  */
-PA_API s16 paWriteString(struct pa_string *str, void *src, s16 off, s16 num);
+PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num);
 
 /*
  * Copy characters from the string without removing them. The destination-buffer
@@ -276,7 +192,7 @@ PA_API s16 paWriteString(struct pa_string *str, void *src, s16 off, s16 num);
  *
  * Returns: The number of copied characters or -1 if an error occurred
  */
-PA_API s16 paCopyString(struct pa_string *str, void *dst, s16 off, s16 num);
+PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off, s16 num);
 
 /*
  * Read characters from the string while also removing them. The
@@ -289,7 +205,40 @@ PA_API s16 paCopyString(struct pa_string *str, void *dst, s16 off, s16 num);
  *
  * Returns: The number of read characters or -1 if an error occurred
  */
-PA_API s16 paReadString(struct pa_string *str, void *dst, s16 off, s16 num);
+PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off, s16 num);
+
+/*
+ * Get the character-number in the string from the given byte-offset.
+ * byte offset => character number
+ *
+ * @str: Pointer to the string
+ * @off: The byte-offset
+ *
+ * Returns: The character-number in the string or -1 if an error occurred
+ */
+PA_API s16 paGetStringCharacter(struct pa_string *str, s32 off);
+
+/*
+ * Get the byte-offset from the character-number in the string.
+ * character number => byte offset
+ *
+ * @str: Pointer to the string
+ * @cnum: The character-number in the string
+ *
+ * Returns: The byte-offset in the string-buffer
+ */
+PA_API s32 paGetStringOffset(struct pa_string *str, s16 cnum);
+
+/*
+ * Get the next character in the string encoded in 4 bytes and update the
+ * iterator handle.
+ *
+ * @str: Pointer to the string
+ * @off: The current byte-offset in the string
+ *
+ * Returns: The next character in the string encoded in 4 bytes
+ */
+PA_API u32 paNextStringChar(struct pa_string *str, s32 *off);
 
 /*
  * Get the pointer for the next character in the string.
@@ -299,7 +248,7 @@ PA_API s16 paReadString(struct pa_string *str, void *dst, s16 off, s16 num);
  * void *chr = NULL;
  * ...
  * while((chr = paIterateString(&str, chr))) {
- *      ..Do something
+ *      ..Do something...
  * }
  * ...
  *
@@ -309,16 +258,8 @@ PA_API s16 paReadString(struct pa_string *str, void *dst, s16 off, s16 num);
  * Returns: The pointer to the next character in the string or NULL if there are
  *          no more characters
  */
-PA_API s16 paIterateString(struct pa_string *str, void *chr);
+PA_API char *paIterateString(struct pa_string *str, char *chr);
 
-/*
- * Get the character in the string from the given byte-offset.
- *
- * @str: Pointer to the string
- * @off: The byte-offset
- *
- * Returns: The character-number in the string or -1 if an error occurred
- */
 
 /*
  * -----------------------------------------------------------------------------
@@ -341,6 +282,7 @@ struct pa_list {
         s16 entry_size; /* The size of a slot in bytes */
 
         s16 count;  /* Number of used slots */
+        s16 inuse;  /* The total size of all used slots in bytes */
         s16 alloc;  /* Number of allocated slots */
 };
 
@@ -486,6 +428,21 @@ PA_API s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num);
  * Returns: The number of retrieved elements or -1 if an error occurred
  */
 PA_API s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
+
+/*
+ * Get a pointer to the next entry in the list. For the first step pass NULL for
+ * ptr.
+ * Example on how to iterate through the whole list:
+ * ...
+ * struct pa_list list;
+ * void *ptr = NULL;
+ * ...
+ * while((ptr = paIterateList(&lst, ptr))) {
+ *      ..Do something..
+ * }
+ * ...
+ */
+PA_API void *paIterateList(struct pa_list *lst, void *ptr);
 
 /*
  * Call a callback-function on every entry in the list. If the callback-function

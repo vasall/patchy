@@ -38,6 +38,11 @@ typedef double                  f64;
 
 #define PA_IGNORE(x)           (void)(x)
 
+#define PA_MIN(a, b)            ((a > b) ? b : a)
+#define PA_MAX(a, b)            ((a > b) ? a : b)
+
+#define PA_OVERLAP(min1, max1, min2, max2) \
+        (PA_MAX(0, PA_MIN(max1, max2) - PA_MAX(min1, min2)))
 
 #define PA_START                  0
 #define PA_END                   -1
@@ -158,22 +163,23 @@ PA_API s8 paInitString(struct pa_string *str, struct pa_memory *mem);
  *
  * @str: Pointer to the string
  * @buf: Pointer to the memory-buffer
- * @size: The size of the memory-buffer in bytes
+ * @alloc: The size of the memory-buffer in bytes
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size);
+PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 alloc);
 
 /*
  * Write as many UTF8-characters to the string at the given character-offset as
  * possible. If the string is configured as dynamic, the string will scale to
  * fit all new characters.
+ * This function will overwrite the current content of the string.
  * The characters in the source-buffer need to already be UTF8-encoded and if
  * the given number is set to PA_ALL, the string needs to be null-terminated.
  *
  * @str: Pointer to the string
  * @src: The source-buffer to copy from
- * @off: The offset-position in characters
+ * @off: The offset-position in the string
  * @num: The number of characters to write to the string
  *
  * Returns: The number of written characters or -1 if an error occurred
@@ -181,31 +187,57 @@ PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size);
 PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num);
 
 /*
+ * Insert UTF8-encoded characters from the source-buffer to the string-buffer at
+ * the requested offset and move the trailing block back as to not overwrite and
+ * current characters. This function will only copy over full-characters and
+ * do that until either the requested number of characters has been inserted or
+ * the string-buffer limit has been reached.
+ *
+ * @str: Pointer to the string
+ * @src: The source-buffer to copy from
+ * @off: The offset-position in the string
+ * @num: The number of characters to insert into the string
+ *
+ * Returns: The number of written characters or -1 if an error occurred
+ */
+PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num);
+
+/*
  * Copy characters from the string without removing them. The destination-buffer
- * has to be preallocated to fit all the requested characters. The written
- * string will be null-terminated.
+ * has to be preallocated. The written string will be null-terminated. The
+ * function will write as many characters into the destination-buffer until
+ * either the limit or the requested character-number has been reached. Only
+ * full character-sequences are written.
  *
  * @str: Pointer to the string
  * @dst: A pointer to the destination buffer
  * @off: The character to start copying from
  * @num: The number of characters to read from the string
+ * @lim: The size of the destination-buffer in bytes with the null-terminator
  *
  * Returns: The number of copied characters or -1 if an error occurred
  */
-PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off, s16 num);
+PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off, 
+                s16 num, s32 lim);
 
 /*
- * Read characters from the string while also removing them. The
- * destination-buffer has to be preallocated to fit the requested characters.
- * The written character-string will be null-terminated.
+ * Remove characters from the string-buffer and write them to the
+ * destination-buffer. The destination-buffer has to be preallocated
+ * to fit the requested characters. The written character-string will
+ * be null-terminated. This function will only write the characters into the
+ * destionation-buffer until the limit has been reached. Only full
+ * character-sequences are written.
  *
  * @str: Pointer to the string
  * @dst: A pointer to the destination buffer
  * @off: The character to start reading from
+ * @num: The number of charaters to read from the string
+ * @lim: The size of the destination-buffer in bytes with the null-terminator
  *
  * Returns: The number of read characters or -1 if an error occurred
  */
-PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off, s16 num);
+PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off,
+                s16 num, s32 lim);
 
 /*
  * Get the character-number in the string from the given byte-offset.

@@ -99,6 +99,18 @@ PA_INTERN s16 str_charnum(char *s, s32 offset)
 	return charnum;
 }
 
+PA_INTERN void str_inc(char *s, int *i)
+{
+	(void)(PA_ISUTF(s[++(*i)]) || PA_ISUTF(s[++(*i)]) ||
+			PA_ISUTF(s[++(*i)]) || ++(*i));
+}
+
+PA_INTERN void str_dec(char *s, int *i)
+{
+	(void)(PA_ISUTF(s[--(*i)]) || PA_ISUTF(s[--(*i)]) || 
+			PA_ISUTF(s[--(*i)]) || --(*i));
+}
+
 PA_INTERN void str_ensure_fit(struct pa_string *str, s32 size)
 {
         s32 new_alloc;
@@ -133,7 +145,7 @@ PA_API s8 paInitString(struct pa_string *str, struct pa_memory *mem)
         return 0;
 }
 
-PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size)
+PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 alloc)
 {
         str->memory = NULL;
         str->mode = PA_FIXED;
@@ -143,24 +155,87 @@ PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 size)
 
         str->length = 0;
         str->size = 0;
-        str->alloc = size;
+        str->alloc = alloc;
         return 0;
 }
 
 PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
 {
         s32 free_size;
-        s32 read_size;
-        s32 write_offset;
-        s32 mov_offset;
-        s32 mov_size;
-        s16 written;
+        s32 read_sz;
+        s32 write_off;
+        s32 write_sz;
+        s32 run;
+        s16 count;
+        s32 move_off;
+        s32 move_sz;
+
+        s16 overlap;
+        s32 overlap_size;
 
         /* First we figure out how many bytes should be read from the source */
-        read_size = num == PA_ALL ? pa_strlen(src) : str_offset(src, num);
+        read_sz = num == PA_ALL ? pa_strlen(src) : str_offset(src, num);
+
+        /* Second, we figure out what the offset should be */
+        off = off == PA_END ? str->length : off;
+        write_off = paGetStringOffset(str, off);
+        
+        /* Next we figure out the overlap */
+        overlap = PA_OVERLAP(0, str->length, off, num);
+        overlap_size = str_offset(str->buffer + write_off, overlap);
+               
+        /* Scale the string-buffer to fit the new characters */
+        str_ensure_fit(str, read_sz - overlap_size);
+
+        /* 
+         * Determine how much free memory is left (subtract 1 for the
+         * null-terminator).
+         */
+        free_size = str->alloc - str->size - 1 + overlap_size;
+
+        /* Now we have to figure out how many characters can actually we written
+         * to the string buffer.
+         */
+        run = 0;
+        count = 0;
+        while(str_next(src, &run) && run <= free_size && count < num) {
+                write_sz = run;
+                count++;
+        }
+        num = count;
+
+        /* Copy from source to the string buffer */
+        write_off = paGetStringOffset(str, off);
+        pa_mem_copy(str->buffer + write_off, src, write_sz);
+
+        /* Update string byte-size and set null-terminator */
+        str->size += write_sz - overlap_size;
+        str->length += num - overlap;
+        str->buffer[str->size] = 0;
+               
+        /* Return number of written bytes */
+        return num;
+}
+
+PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
+{
+        s32 free_size;
+        s32 read_sz;
+        s32 write_off;
+        s32 write_sz;
+        s32 run;
+        s32 move_off;
+        s32 move_sz;
+        s16 count;
+
+        /* First we figure out how many bytes should be read from the source */
+        read_sz = num == PA_ALL ? pa_strlen(src) : str_offset(src, num);
+
+        /* Second, we figure out what the offset should be */
+        off = off == PA_END ? str->length : off;
 
         /* If the string is dynamic, scale the buffer to fit new characters */
-        str_ensure_fit(str, read_size);
+        str_ensure_fit(str, read_sz);
 
         /* 
          * Then we determine how much free memory is actually left in the
@@ -168,93 +243,116 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
          */
         free_size = str->alloc - str->size - 1;
 
-        /*
-         * Then we figure out how many bytes will be written to the string
-         * buffer, considering only whole characters may be added. We do that by
-         * checking how many whole characters fit into the available
-         * memory-space, and then convert that back into an actual byte-size.
-         * Cumbersome? Yes. Efficient? No! Does it work? ???
+        /* Now we have to figure out how many characters can actually we written
+         * to the string buffer.
          */
-        read_size = read_size > free_size ? free_size : read_size;
-        written = str_charnum(src, read_size);
-        read_size = str_offset(src, written);
+        run = 0;
+        count = 0;
+        do {
+                write_sz = run;
+                count++;
+        } while(str_next(src, &run) && run <= free_size && count < num);
+        num = count;
 
         /* Get the byte-offset in the string buffer */
-        write_offset = paGetStringOffset(str, off);
+        write_off = str_offset(str->buffer, off);
 
-        /* Determine the size of the trailing block which has to be moved */
-        mov_size = str->size - write_offset;
-
-        /* Move back the trailing block to make space */
-        mov_offset = write_offset + read_size;
-        pa_mem_move(str->buffer + mov_offset, str->buffer + write_offset,
-                        mov_size);
+        /* 
+         * Determine the size of the trailing block which has to be moved and
+         * move it.
+         */
+        move_sz = str->size - write_off;
+        if(move_sz > 0) {
+                move_off = write_off + write_sz;
+                pa_mem_move(str->buffer + move_off, str->buffer + write_off,
+                                move_sz);
+        }
 
         /* Copy from source to the string buffer */
-        pa_mem_copy(str->buffer + write_offset, src, read_size);
+        pa_mem_copy(str->buffer + write_off, src, write_sz);
 
         /* Update string byte-size and set null-terminator */
-        str->size += read_size;
+        str->size += write_sz;
         str->length += num;
         str->buffer[str->size] = 0;
                
         /* Return number of written bytes */
-        return written;
+        return num;
 }
 
-PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off, s16 num)
+PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off,
+                s16 num, s32 lim)
 {
-        s32 copy_size;
-        s32 copy_offset;
+        s32 copy_sz;
+        s32 copy_off;
+        s16 count;
 
         /* Resolve input parameters */
         num = num == PA_ALL ? str->length - off : num;
 
         /* Calculate the size and offset for the characters in the string */
-        copy_offset = paGetStringOffset(str, off);
-        copy_size = paGetStringOffset(str, off + num) - copy_offset;
+        copy_off = str_offset(str->buffer, off);
+        copy_sz = str_offset(str->buffer + copy_off, num);
+
+        /* Reduce character count to keep in the limit */
+        count = 0;
+        while(copy_sz > lim) {
+                str_dec(str->buffer, &copy_sz);
+                count++;
+        }
+        num -= count;
 
         /* Copy over the characters and set null-terminator in output-buffer */
-        pa_mem_copy(dst, str->buffer + copy_offset, copy_size);
-        dst[copy_size] = 0;
+        pa_mem_copy(dst, str->buffer + copy_off, copy_sz);
+        dst[copy_sz] = 0;
 
         /* Return the number of copied characters */
         return num;
 }
 
-PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off, s16 num)
+PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off,
+                s16 num, s32 lim)
 {
-        s32 read_offset;
-        s32 read_size;
-        s32 mov_offset;
-        s32 mov_size;
+        s32 read_off;
+        s32 read_sz;
+        s32 move_off;
+        s32 move_sz;
+        s16 count;
 
         /* Resolve input parameters */
         num = num == PA_ALL ? str->length = off : num;
 
         /* Calculate the size and offset for the characters in the string */
-        read_offset = paGetStringOffset(str, off);
-        read_size = paGetStringOffset(str, off + num) - read_offset;
+        read_off = str_offset(str->buffer, off);
+        read_sz = str_offset(str->buffer + read_off, num);
+
+        /* Reduce character count to keep in the limit */
+        count = 0;
+        while(read_sz > lim) {
+                str_dec(str->buffer, &read_sz);
+                count++;
+        }
+        num -= count;
 
         /* Copy over the characters and set null-terminator in output-buffer */
-        pa_mem_copy(dst, str->buffer + read_offset, read_size);
-        dst[read_size] = 0;
+        pa_mem_copy(dst, str->buffer + read_off, read_sz);
+        dst[read_sz] = 0;
 
         /* Calculate the size and new offset for the trailing block */
-        mov_size = str->size - read_offset;
-        mov_offset = read_offset + read_size;
+        move_sz = str->size - read_off;
+        move_off = read_off + read_sz;
 
         /* Move the trailing block forward to fill the gap */
-        pa_mem_move(str->buffer + read_offset, str->buffer + mov_offset,
-                        mov_size);
+        pa_mem_move(str->buffer + read_off, str->buffer + move_off,
+                        move_sz);
 
         /* Update string byte-size and set null-terminator */
-        str->size -= read_size;
+        str->size -= read_sz;
         str->length -= num;
         str->buffer[str->size] = 0;
 
         /* Return the number of read bytes */
-        return 0;
+        return num;
 }
 
 PA_API s16 paGetStringCharacter(struct pa_string *str, s32 off)
@@ -420,7 +518,7 @@ PA_LIB s16 paUnshiftList(struct pa_list *lst, void *src, s16 num)
         s16 open_slots;
         s16 entry_number;
         s32 size;
-        s32 mov_size;
+        s32 move_sz;
 
         /* If configured as dynamic, scale to fit new entries */
         lst_ensure_fit(lst, num);
@@ -431,8 +529,8 @@ PA_LIB s16 paUnshiftList(struct pa_list *lst, void *src, s16 num)
         size = entry_number * lst->entry_size;
 
         /* Move all entries back to make space at the beginning */
-        mov_size = lst->count * lst->entry_size;
-        pa_mem_move(lst->data + size, lst->data, mov_size);
+        move_sz = lst->count * lst->entry_size;
+        pa_mem_move(lst->data + size, lst->data, move_sz);
 
         /* Now copy over the data from the source */
         pa_mem_copy(lst->data, src, size);
@@ -475,8 +573,8 @@ PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num)
         s16 entry_number;
         s32 offset;
         s32 size;
-        s32 mov_offset;
-        s32 mov_size;
+        s32 move_off;
+        s32 move_sz;
 
         if(start == PA_END) {
                 start = lst->count;
@@ -492,9 +590,9 @@ PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num)
         offset = start * lst->entry_size;
         
         /* Move entries back to make space */
-        mov_size = (lst->count - start) * lst->entry_size;
-        mov_offset = (lst->count * lst->entry_size) - mov_size;
-        pa_mem_move(lst->data + mov_offset, lst->data + offset, mov_size);
+        move_sz = (lst->count - start) * lst->entry_size;
+        move_off = (lst->count * lst->entry_size) - move_sz;
+        pa_mem_move(lst->data + move_off, lst->data + offset, move_sz);
 
         /* Copy over the entries from the source */
         pa_mem_copy(lst->data + offset, src, size);
@@ -530,8 +628,8 @@ PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num)
         s16 entry_number;
         s32 offset;
         s32 size;
-        s32 mov_offset;
-        s32 mov_size;
+        s32 move_off;
+        s32 move_sz;
 
         /* Figure out how many entries can actually be returned */
         entry_left = lst->count - start;
@@ -543,9 +641,9 @@ PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num)
         pa_mem_copy(dst, lst->data + offset, size);
 
         /* Move back the entries to fill the gap */
-        mov_offset = offset + size;
-        mov_size = (lst->count - (start + entry_number)) * lst->entry_size;
-        pa_mem_move(lst->data + offset, lst->data + mov_offset, mov_size);
+        move_off = offset + size;
+        move_sz = (lst->count - (start + entry_number)) * lst->entry_size;
+        pa_mem_move(lst->data + offset, lst->data + move_off, move_sz);
 
         /* Update the number of entries in the list and return */
         lst->count -= entry_number;

@@ -171,7 +171,7 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         s32 move_sz;
 
         s16 overlap;
-        s32 overlap_size;
+        s32 overlap_sz;
 
         /* First we figure out how many bytes should be read from the source */
         read_sz = num == PA_ALL ? pa_strlen(src) : str_offset(src, num);
@@ -182,22 +182,23 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         
         /* Next we figure out the overlap */
         overlap = PA_OVERLAP(0, str->length, off, num);
-        overlap_size = str_offset(str->buffer + write_off, overlap);
+        overlap_sz = str_offset(str->buffer + write_off, overlap);
                
         /* Scale the string-buffer to fit the new characters */
-        str_ensure_fit(str, read_sz - overlap_size);
+        str_ensure_fit(str, read_sz - overlap_sz);
 
         /* 
          * Determine how much free memory is left (subtract 1 for the
          * null-terminator).
          */
-        free_size = str->alloc - str->size - 1 + overlap_size;
+        free_size = str->alloc - str->size - 1 + overlap_sz;
 
         /* Now we have to figure out how many characters can actually we written
          * to the string buffer.
          */
         run = 0;
         count = 0;
+        write_sz = 0;
         while(str_next(src, &run) && run <= free_size && count < num) {
                 write_sz = run;
                 count++;
@@ -209,7 +210,7 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         pa_mem_copy(str->buffer + write_off, src, write_sz);
 
         /* Update string byte-size and set null-terminator */
-        str->size += write_sz - overlap_size;
+        str->size += write_sz - overlap_sz;
         str->length += num - overlap;
         str->buffer[str->size] = 0;
                
@@ -318,6 +319,9 @@ PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off,
         s32 move_off;
         s32 move_sz;
         s16 count;
+
+        if(off > str->length || off < 0 || num > str->length)
+                return 0;
 
         /* Resolve input parameters */
         num = num == PA_ALL ? str->length = off : num;

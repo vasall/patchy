@@ -1,7 +1,6 @@
 #include "patchy.h"
 #include "patchy_internal.h"
 
-
 /*
  * -----------------------------------------------------------------------------
  *
@@ -116,6 +115,9 @@ PA_INTERN void str_ensure_fit(struct pa_string *str, s32 size)
         s32 new_alloc;
         void *p;
 
+        if(size < 1)
+                return;
+
         if(str->size + size + 1 > str->alloc && str->mode == PA_DYNAMIC) {
                 new_alloc = (str->size + size) * 1.5;
                 if(!(p = pa_mem_alloc(str->memory, str->buffer, new_alloc))) {
@@ -159,6 +161,18 @@ PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 alloc)
         return 0;
 }
 
+PA_API void paDestroyString(struct pa_string *str)
+{
+        if(str->mode == PA_DYNAMIC) {
+                pa_mem_free(str->memory, str->buffer);
+        }
+
+        str->buffer = NULL;
+        str->length = 0;
+        str->size = 0;
+        str->alloc = 0;
+}
+
 PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
 {
         s32 free_size;
@@ -173,17 +187,30 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         s16 overlap;
         s32 overlap_sz;
 
+        s32 trail_sz;
+        s32 trail_off;
+
         /* First we figure out how many bytes should be read from the source */
-        read_sz = num == PA_ALL ? pa_strlen(src) : str_offset(src, num);
+        if(num == PA_ALL) {
+                read_sz = pa_strlen(src);
+                num = str_charnum(src, read_sz);
+        }
+        else {
+                read_sz = str_offset(src, num);
+        }
 
         /* Second, we figure out what the offset should be */
         off = off == PA_END ? str->length : off;
         write_off = paGetStringOffset(str, off);
-        
+
+        /* Validate input parameters */
+        if(read_sz < 1) return 0;
+        if(off < 0 || off > str->length) return 0;
+
         /* Next we figure out the overlap */
         overlap = PA_OVERLAP(0, str->length, off, num);
-        overlap_sz = str_offset(str->buffer + write_off, overlap);
-               
+        overlap_sz = str_offset(str->buffer + write_off, overlap);  
+
         /* Scale the string-buffer to fit the new characters */
         str_ensure_fit(str, read_sz - overlap_sz);
 
@@ -192,6 +219,7 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
          * null-terminator).
          */
         free_size = str->alloc - str->size - 1 + overlap_sz;
+        
 
         /* Now we have to figure out how many characters can actually we written
          * to the string buffer.
@@ -199,14 +227,24 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         run = 0;
         count = 0;
         write_sz = 0;
-        while(str_next(src, &run) && run <= free_size && count < num) {
+        while(str_next(src, &run) && run <= free_size && run <= read_sz) {
                 write_sz = run;
                 count++;
         }
         num = count;
 
+        /* 
+         * Before we can actually copy to the string buffer, we have to move the
+         * trailing characters.
+         */
+        trail_sz = str->size - (write_off + overlap_sz);
+        if(trail_sz > 0) {
+                pa_mem_move(str->buffer + write_off + write_sz, 
+                                str->buffer + (str->size - trail_sz),
+                                trail_sz);
+        }
+
         /* Copy from source to the string buffer */
-        write_off = paGetStringOffset(str, off);
         pa_mem_copy(str->buffer + write_off, src, write_sz);
 
         /* Update string byte-size and set null-terminator */
@@ -221,6 +259,7 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
 PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
 {
         s32 free_size;
+        s16 read_num;
         s32 read_sz;
         s32 write_off;
         s32 write_sz;
@@ -230,10 +269,18 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
         s16 count;
 
         /* First we figure out how many bytes should be read from the source */
-        read_sz = num == PA_ALL ? pa_strlen(src) : str_offset(src, num);
+        if(num == PA_ALL) {
+                read_sz = pa_strlen(src);
+                read_num = str_charnum(src, read_sz);
+        }
+        else {
+                read_sz = str_offset(src, num);
+                read_num = num;
+        }
 
         /* Second, we figure out what the offset should be */
         off = off == PA_END ? str->length : off;
+        write_off = str_offset(str->buffer, off);
 
         /* If the string is dynamic, scale the buffer to fit new characters */
         str_ensure_fit(str, read_sz);
@@ -249,14 +296,11 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
          */
         run = 0;
         count = 0;
-        do {
+        while(str_next(src, &run) && run <= free_size && run <= read_sz) {
                 write_sz = run;
                 count++;
-        } while(str_next(src, &run) && run <= free_size && count < num);
-        num = count;
-
-        /* Get the byte-offset in the string buffer */
-        write_off = str_offset(str->buffer, off);
+        }
+        read_num = count;
 
         /* 
          * Determine the size of the trailing block which has to be moved and
@@ -274,7 +318,7 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
 
         /* Update string byte-size and set null-terminator */
         str->size += write_sz;
-        str->length += num;
+        str->length += read_num;
         str->buffer[str->size] = 0;
                
         /* Return number of written bytes */

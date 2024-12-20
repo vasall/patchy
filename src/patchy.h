@@ -170,6 +170,15 @@ PA_API s8 paInitString(struct pa_string *str, struct pa_memory *mem);
 PA_API s8 paInitStringFixed(struct pa_string *str, void *buf, s32 alloc);
 
 /*
+ * Destroy the string, reset all attributes and free any allocated memory if the
+ * string is configured as static. If the string is static, the provided memory
+ * has to be freed manually after use.
+ *
+ * @str: Pointer to the string
+ */
+PA_API void paDestroyString(struct pa_string *str);
+
+/*
  * Write as many UTF8-characters to the string at the given character-offset as
  * possible. If the string is configured as dynamic, the string will scale to
  * fit all new characters.

@@ -5,14 +5,18 @@
 #include <string.h>
 
 
-int main(int argc, char **argv)
+int main(void)
 {
         struct pa_document document;
         struct pa_string str;
 
         #define BUFFER_SIZE 24
         char buffer[BUFFER_SIZE];
-        
+
+        #define OUTPUT_SIZE 128
+        char output_buffer[OUTPUT_SIZE];
+        int read;
+
         char *string1 = "HelloWorld";           /* 10 characters, 10 bytes */
         char *string2 = "一二三四五六七八九十"; /* 10 characters, 30 bytes */
         char *string3 = "wo ai ni";             /*  8 characters,  8 bytes */
@@ -48,6 +52,15 @@ int main(int argc, char **argv)
 
         /* -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- */
 
+        read = paCopyString(&str, output_buffer, 1, PA_ALL, OUTPUT_SIZE);
+        printf("Read(%d, %d): %s\n", read, strlen(output_buffer), output_buffer);
+        printf("String(%d chars, %d bytes): %s\n", str.length, str.size, str.buffer); 
+        *output_buffer = 0;
+
+        read = paReadString(&str, output_buffer, 1, 2, OUTPUT_SIZE);
+        printf("Read(%d, %d): %s\n", read, strlen(output_buffer), output_buffer);
+        printf("String(%d chars, %d bytes): %s\n", str.length, str.size, str.buffer); 
+        *output_buffer = 0;
 
         printf("Shutdown...\n");
         paDestroyString(&str);

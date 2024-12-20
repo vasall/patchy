@@ -328,12 +328,17 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
 PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off,
                 s16 num, s32 lim)
 {
+        s32 trail;
         s32 copy_sz;
         s32 copy_off;
         s16 count;
 
+        if(off >= str->length) return 0;
+
         /* Resolve input parameters */
-        num = num == PA_ALL ? str->length - off : num;
+        trail = str->length - off;
+        num = num == PA_ALL ? trail : num;
+        num = num > trail ? trail : num;
 
         /* Calculate the size and offset for the characters in the string */
         copy_off = str_offset(str->buffer, off);
@@ -358,17 +363,19 @@ PA_API s16 paCopyString(struct pa_string *str, char *dst, s16 off,
 PA_API s16 paReadString(struct pa_string *str, char *dst, s16 off,
                 s16 num, s32 lim)
 {
+        s16 trail;
         s32 read_off;
         s32 read_sz;
         s32 move_off;
         s32 move_sz;
         s16 count;
 
-        if(off > str->length || off < 0 || num > str->length)
-                return 0;
+        if(off >= str->length) return 0;
 
         /* Resolve input parameters */
-        num = num == PA_ALL ? str->length = off : num;
+        trail = str->length - off;
+        num = num == PA_ALL ? trail : num;
+        num = num > trail ? trail : num;
 
         /* Calculate the size and offset for the characters in the string */
         read_off = str_offset(str->buffer, off);

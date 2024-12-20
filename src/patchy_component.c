@@ -282,6 +282,8 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
         off = off == PA_END ? str->length : off;
         write_off = str_offset(str->buffer, off);
 
+        printf("read_sz: %d\n", read_sz);
+
         /* If the string is dynamic, scale the buffer to fit new characters */
         str_ensure_fit(str, read_sz);
 

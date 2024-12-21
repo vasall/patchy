@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct test {
+        int a;
+        int b;
+};
 
 int main(void)
 {
@@ -11,12 +15,12 @@ int main(void)
 
         printf("Init...\n");
         paInit(&document);
-        printf("Done!\n");
+        printf("done!\n");
 
 
         printf("Shutdown...\n");
         paQuit(&document);
-        printf("Done!\n");
+        printf("done!\n");
 
         return 0;
 }

@@ -58,8 +58,9 @@ typedef double                  f64;
  */
 
 enum pa_memory_mode {
-        PA_DYNAMIC      = 0,
-        PA_FIXED        = 1
+        PA_MEM_UDEF     = -1,
+        PA_DYNAMIC      =  0,
+        PA_FIXED        =  1
 };
 
 enum pa_tag_type {
@@ -119,9 +120,6 @@ struct pa_memory {
  * -----------------------------------------------------------------------------
  *
  *      STRING
- *
- * TODO:
- * - Implement UTF8-support
  *
  */
 
@@ -479,7 +477,7 @@ PA_API s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
  * void *ptr = NULL;
  * ...
  * while((ptr = paIterateList(&lst, ptr))) {
- *      ..Do something..
+ *      ..Do something with ptr..
  * }
  * ...
  */
@@ -507,10 +505,192 @@ PA_API void paApplyList(struct pa_list *lst, pa_list_func fnc, void *pass);
  */
 PA_API void paApplyListBack(struct pa_list *lst, pa_list_func fnc, void *pass);
 
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      Dicitonary
+ *
+ * When pushing a new key-value-pair into the dictionary, the key is hashed and
+ * the new entry consisting of the key and value memory is pushed with a next
+ * value into the dictionary-buffer. The entry will then be put into one of the
+ * buckets depending on the hash and attached to the last entry in the bucket by
+ * updating it's next value.
+ *
+ * The dictionary-buffer looks like this:
+ *
+ *   ... <next><hash><key><value> <next><hash><key><value> ...
+ *
+ * The next-value is a short, the hash is an unsigned short, the key is defined
+ * via PA_DICT_KEY_SIZE and the value-size is set during initialization.
+ *
+ * To mark a entry-slot as not-used the next is set to -1. To identify the
+ * end of the bucket, the next is set to -(bucket_number + 2).
+ *
+ * To search for an entry in the dictionary, we again hash the key, determine
+ * the right bucket and then jump from entry to entry to find the right one like
+ * in a linked list.
+ */
 
-struct pa_Dictionary {
 
+#define PA_DICT_NEXT_SIZE 2
+#define PA_DICT_HASH_SIZE 2
+#define PA_DICT_KEY_SIZE  32
+#define PA_DICT_HEAD_SIZE (PA_DICT_NEXT_SIZE+PA_DICT_HASH_SIZE+PA_DICT_KEY_SIZE)
+#define PA_DICT_BUCKETS   8
+
+struct pa_dictionary {
+        struct pa_memory *memory;
+        enum pa_memory_mode mode;
+
+        s32 value_size; /* The size of the value-part in bytes */
+        s32 entry_size; /* The size of the header and value */
+
+        s16 number;   /* Number of active entries in the dictionary */
+        s16 alloc;    /* Number of slots of entries in the dictionary */  
+        u8 *buffer;   /* Memory-buffer to store the entries */
+
+        /* 
+         * All buckets containing the index for their first entry in the
+         * dictionary-buffer.
+         */
+        s16 buckets[PA_DICT_BUCKETS];
 };
+
+struct pa_dictionary_entry {
+        char key[PA_DICT_KEY_SIZE];
+        void *value;
+};
+
+/*
+ * Initialize the dictionary, link to the memory-manager and preallocate the
+ * specified number of entries.
+ *
+ * @dic: Pointer to the dictionary
+ * @mem: Pointer to the memory-manager
+ * @size: The size of the value-part in bytes
+ * @alloc: The number of entries to preallocate
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_API s8 paInitDictionary(struct pa_dictionary *dct, struct pa_memory *mem,
+                s32 size, s16 alloc);
+
+/*
+ * Initialize the dictionary using static memory, and prepare the
+ * dictionary-buffer.
+ *
+ * @dic: Pointer to the dictionary
+ * @buffer: The buffer to use to store the entries
+ * @buf_sz: The size of the buffer in bytes
+ * @value_sz: The size of the value-part in bytes
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_API s8 paInitDictionaryFixed(struct pa_dictionary *dct, void *buffer,
+                s32 buf_sz, s32 value_sz);
+
+/*
+ * Destroy the dictionary, reset all attributes and if configured as dynamic,
+ * free the allocated memory.
+ *
+ * @dct: Pointer to the dictionary
+ */
+PA_API void paDestroyDictionary(struct pa_dictionary *dct);
+
+/*
+ * Set a key-value-pair in the dictionary. If the key already exists then
+ * overwrite it. If it does not yet exist, create it. This function will copy
+ * over the memory into the buffer.
+ *
+ * @dct: Pointer to the dictionary
+ * @key: Pointer to the key
+ * @value: Pointer to the value
+ *
+ * Returns: Either 0 on success or -1 if an error occurred
+ */
+PA_API s8 paSetDictionary(struct pa_dictionary *dct, char *key, void *value);
+
+/*
+ * Retrieve an entry from the dictionary by searching for the key. To do so, the
+ * key will be hashed and the proper bucket determined. Then the function will
+ * go through all entries in the bucked until the requested entry is found.
+ *
+ * @dct: Pointer to the dictionary
+ * @key: Pointer to the key to look for
+ * @dst: A pointer to write the entry for the key to
+ *
+ * Returns: 1 if the entry has been found, 0 if not and -1 if an error occurred
+ */
+PA_API s8 paGetDictionary(struct pa_dictionary *dct, char *key, void *out);
+
+/*
+ * Remove an entry from the dictionary and open up the slot. The memory in the
+ * entry will be lost!
+ *
+ * @dct: Pointer to the dictionary
+ * @key: The key of the entry
+ */
+PA_API void paRemoveDictionary(struct pa_dictionary *dct, char *key);
+
+/*
+ * This function allows the iteration of every entry in every bucket. The basic
+ * principal is passing a pointer to the current entry and getting the
+ * entry-data and pointer for the next entry. Note that this function goes from
+ * bucket to bucket, so it will not return the entries in respect to when they
+ * have been added.
+ *
+ * Here's an example of how to use the function:
+ * ...
+ * struct pa_dictionary dict;
+ * struct pa_dictionary_entry ent;
+ * void *ptr = NULL;
+ * ...
+ * while((ptr = paIterateDictionary(&dict, ptr, &ent))) {
+ *      ..Do something with the entry...
+ * }
+ * ...
+ *
+ * @dct: Pointer to the dictionary
+ * @ptr: The runing pointer used to iterate(pass NULL at the start)
+ * @ent: A pointer to write the entry data to
+ *
+ * Returns: The pointer for the current entry in the dictionary-buffer or NULL
+ *          if this is the last entry in the dictionary
+ */
+PA_API void *paIterateDictionary(struct pa_dictionary *dct, void *ptr, 
+                struct pa_dictionary_entry *ent);
+
+/*
+ * Iterate through all entries in a bucket.
+ *
+ * Here's an example of how to use the function to iterate through bucket 2:
+ * ...
+ * struct pa_dictionary dict;
+ * struct pa_dictionary_entry ent;
+ * void *ptr = NULL;
+ * ...
+ * while((ptr = paIterateDictionaryBucket(&dict, 2, ptr, &ent))) {
+ *      ..Do something with the entry...
+ * }
+ * ...
+ *
+ * @dct: Pointer to the dictionary
+ * @bucket: The bucket to iterate through
+ * @ptr: The running pointer used to iterate(pass NULL at start)
+ * @ent: A pointer to write the entry data to
+ *
+ * Returns: The pointer for the current entry in the dictionary-buffer or NULL
+ *          if this is the last entry in the bucket
+ */
+PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
+                void *ptr, struct pa_dictionary_entry *ent);
+
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      FLEX
+ *
+ */
 
 /*
  * ----  CODE-TABLE  ----
@@ -572,7 +752,7 @@ PA_LIB void wut_flx_parse(struct pa_flex *flx, char *str);
  * icons.
  */
 struct pa_context {
-
+        char placeholder;
 };
 
 
@@ -587,8 +767,8 @@ struct pa_context {
 /*
  * A single style-attribute.
  */
-struct pa_style_attribute {
-              
+struct pa_style_attribute { 
+        char placeholder; 
 };
 
 
@@ -596,7 +776,7 @@ struct pa_style_attribute {
  * 
  */
 struct pa_stylesheet {
-
+        char placeholder;
 };
 
 
@@ -604,7 +784,7 @@ struct pa_stylesheet {
  * 
  */
 struct pa_style {
-
+        char placeholder;
 };
 
 
@@ -613,7 +793,7 @@ struct pa_style {
  * tagged with the class-name.
  */
 struct pa_class_style {
-
+        char placeholder;
 };
 
 /*
@@ -621,7 +801,7 @@ struct pa_class_style {
  * elements with a given type.
  */
 struct pa_type_style {
-
+        char placeholder;
 };
 
 /* 
@@ -634,14 +814,14 @@ struct pa_type_style {
 
 /*  */
 struct pa_event {
-
+        char placeholder;
 };
 
 typedef s8 (*pa_event_callback)(struct pa_event evt, void *data);
 
 /*  */
 struct pa_event_handler {
-
+        char placeholder;
 };
 
 
@@ -716,7 +896,7 @@ struct pa_element_tree {
  * resources from the context.
  */
 struct pa_patch {
-
+        char placeholder;
 };
 
 /*
@@ -724,7 +904,7 @@ struct pa_patch {
  * transparency/opaquenes, same resources, same color, etc.
  */
 struct pa_batch {
-
+        char placeholder;
 };
 
 

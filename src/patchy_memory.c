@@ -1,4 +1,5 @@
 #include "patchy.h"
+#include "patchy_internal.h"
 
 #include <stdlib.h>
 #include <string.h>

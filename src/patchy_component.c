@@ -1,6 +1,8 @@
 #include "patchy.h"
 #include "patchy_internal.h"
 
+#include <stdio.h>
+
 /*
  * -----------------------------------------------------------------------------
  *
@@ -21,18 +23,18 @@
  */
 PA_INTERN const char str_trailing_bytes[256] = {
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-	2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3,4,4,4,4,5,5,5,5
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3,4,4,4,4,5,5,5,5
 };
 
 PA_INTERN const u32 str_offset_utf8[6] = {
-	0x00000000UL, 0x00003080UL, 0x000E2080UL,
-	0x03C82080UL, 0xFA082080UL, 0x82082080UL
+        0x00000000UL, 0x00003080UL, 0x000E2080UL,
+        0x03C82080UL, 0xFA082080UL, 0x82082080UL
 };
 
 PA_INTERN s16 str_sequence_size(char *s)
@@ -43,30 +45,30 @@ PA_INTERN s16 str_sequence_size(char *s)
 PA_INTERN u32 str_next(char *s, s32 *off)
 {
         u32 ch = 0;
-	s32 sz = 0;
+        s32 sz = 0;
 
-	do {
-		ch <<= 6;
-		ch += (u8)s[(*off)++];
-		sz++;
-	} while(s[*off] && !PA_ISUTF(s[*off]));
-	
-	ch -= str_offset_utf8[sz-1];
-	return ch;
+        do {
+                ch <<= 6;
+                ch += (u8)s[(*off)++];
+                sz++;
+        } while(s[*off] && !PA_ISUTF(s[*off]));
+
+        ch -= str_offset_utf8[sz-1];
+        return ch;
 }
 
 PA_INTERN s16 str_length(char *s)
 {
         s16 count = 0;
-	s32 i = 0;
+        s32 i = 0;
 
-	if(s == NULL || pa_strlen(s) == 0)
-		return 0;
+        if(s == NULL || pa_strlen(s) == 0)
+                return 0;
 
-	while(str_next(s, &i) != 0)
-		count++;
+        while(str_next(s, &i) != 0)
+                count++;
 
-	return count;
+        return count;
 }
 
 /* charnum => byte offset */
@@ -74,13 +76,13 @@ PA_INTERN s32 str_offset(char *s, s16 charnum)
 {
         s16 offs = 0;
 
-	while(charnum > 0 && s[offs]) {
-		(void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
-				PA_ISUTF(s[++offs]) || ++offs);
-		charnum--;
-	}
+        while(charnum > 0 && s[offs]) {
+                (void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
+                                PA_ISUTF(s[++offs]) || ++offs);
+                charnum--;
+        }
 
-	return offs;
+        return offs;
 }
 
 /* byte offset => charnum */
@@ -89,25 +91,25 @@ PA_INTERN s16 str_charnum(char *s, s32 offset)
         s16 charnum = 0;
         s32 offs = 0;
 
-	while(offs < offset && s[offs]) {
-		(void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
-				PA_ISUTF(s[++offs]) || ++offs);
-		charnum++;
-	}
+        while(offs < offset && s[offs]) {
+                (void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
+                                PA_ISUTF(s[++offs]) || ++offs);
+                charnum++;
+        }
 
-	return charnum;
+        return charnum;
 }
 
 PA_INTERN void str_inc(char *s, int *i)
 {
-	(void)(PA_ISUTF(s[++(*i)]) || PA_ISUTF(s[++(*i)]) ||
-			PA_ISUTF(s[++(*i)]) || ++(*i));
+        (void)(PA_ISUTF(s[++(*i)]) || PA_ISUTF(s[++(*i)]) ||
+                        PA_ISUTF(s[++(*i)]) || ++(*i));
 }
 
 PA_INTERN void str_dec(char *s, int *i)
 {
-	(void)(PA_ISUTF(s[--(*i)]) || PA_ISUTF(s[--(*i)]) || 
-			PA_ISUTF(s[--(*i)]) || --(*i));
+        (void)(PA_ISUTF(s[--(*i)]) || PA_ISUTF(s[--(*i)]) || 
+                        PA_ISUTF(s[--(*i)]) || --(*i));
 }
 
 PA_INTERN void str_ensure_fit(struct pa_string *str, s32 size)
@@ -181,14 +183,11 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         s32 write_sz;
         s32 run;
         s16 count;
-        s32 move_off;
-        s32 move_sz;
 
         s16 overlap;
         s32 overlap_sz;
 
         s32 trail_sz;
-        s32 trail_off;
 
         /* First we figure out how many bytes should be read from the source */
         if(num == PA_ALL) {
@@ -219,7 +218,7 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
          * null-terminator).
          */
         free_size = str->alloc - str->size - 1 + overlap_sz;
-        
+
 
         /* Now we have to figure out how many characters can actually we written
          * to the string buffer.
@@ -251,7 +250,7 @@ PA_API s16 paWriteString(struct pa_string *str, char *src, s16 off, s16 num)
         str->size += write_sz - overlap_sz;
         str->length += num - overlap;
         str->buffer[str->size] = 0;
-               
+
         /* Return number of written bytes */
         return num;
 }
@@ -281,8 +280,6 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
         /* Second, we figure out what the offset should be */
         off = off == PA_END ? str->length : off;
         write_off = str_offset(str->buffer, off);
-
-        printf("read_sz: %d\n", read_sz);
 
         /* If the string is dynamic, scale the buffer to fit new characters */
         str_ensure_fit(str, read_sz);
@@ -322,7 +319,7 @@ PA_API s16 paInsertString(struct pa_string *str, char *src, s16 off, s16 num)
         str->size += write_sz;
         str->length += read_num;
         str->buffer[str->size] = 0;
-               
+
         /* Return number of written bytes */
         return num;
 }
@@ -418,13 +415,13 @@ PA_API s16 paGetStringCharacter(struct pa_string *str, s32 off)
         s16 offs = 0;
         char *s = str->buffer;
 
-	while(offs < off && s[offs]) {
-		(void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
-				PA_ISUTF(s[++offs]) || ++offs);
-		charnum++;
-	}
+        while(offs < off && s[offs]) {
+                (void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
+                                PA_ISUTF(s[++offs]) || ++offs);
+                charnum++;
+        }
 
-	return charnum;
+        return charnum;
 }
 
 PA_API s32 paGetStringOffset(struct pa_string *str, s16 cnum)
@@ -432,13 +429,13 @@ PA_API s32 paGetStringOffset(struct pa_string *str, s16 cnum)
         s32 offs = 0;
         char *s = str->buffer;
 
-	while(cnum > 0 && s[offs]) {
-		(void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
-				PA_ISUTF(s[++offs]) || ++offs);
-		cnum--;
-	}
+        while(cnum > 0 && s[offs]) {
+                (void)(PA_ISUTF(s[++offs]) || PA_ISUTF(s[++offs]) ||
+                                PA_ISUTF(s[++offs]) || ++offs);
+                cnum--;
+        }
 
-	return offs;
+        return offs;
 }
 
 PA_API u32 paNextStringChar(struct pa_string *str, s32 *off)
@@ -492,7 +489,7 @@ PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
         lst->entry_size = size;
         lst->count = 0;
         lst->alloc = alloc;
-                
+
         tmp = lst->alloc * lst->entry_size;
         if(!(lst->data = pa_mem_alloc(lst->memory, NULL, tmp))) {
                 return -1;
@@ -645,7 +642,7 @@ PA_LIB s16 paInsertList(struct pa_list *lst, void *src, s16 start, s16 num)
         entry_number = num > open_slots ? open_slots : num;
         size = entry_number * lst->entry_size;
         offset = start * lst->entry_size;
-        
+
         /* Move entries back to make space */
         move_sz = (lst->count - start) * lst->entry_size;
         move_off = (lst->count * lst->entry_size) - move_sz;
@@ -749,5 +746,384 @@ PA_API void paApplyListBack(struct pa_list *lst, pa_list_func fnc, void *pass)
                 hdl.index = i;
                 if(fnc(&hdl, pass)) return;
         }
+}
 
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      DICTIONARY
+ *
+ */
+
+/* Source: https://stackoverflow.com/a/21001712 */
+PA_INTERN u16 dct_hash(char *key)
+{
+        u32 byte;
+        u32 crc;
+        u32 mask;
+        s32 i = 0;
+        s32 j;
+
+        crc = 0xFFFFFFFF;
+        while(key[i] != 0) {
+                byte = key[i];
+                crc = crc ^ byte;
+                for (j = 7; j >= 0; j--) {
+                        mask = -(crc & 1);
+                        crc = (crc >> 1) ^ (0xEDB88320 & mask);
+                }
+                i++;
+        }
+        return (~crc) % 0xFFFF;
+}
+
+PA_INTERN s16 dct_find_open(struct pa_dictionary *dct)
+{
+        s16 i;
+        s32 entry_sz = PA_DICT_HEAD_SIZE + dct->value_size;
+
+        for(i = 0; i < dct->alloc; i++) {
+                if(*(s16 *)(dct->buffer + i * entry_sz) == -1)
+                        return i;
+        }
+
+        return -1;
+}
+
+PA_INTERN u8 *dct_next_bucket(struct pa_dictionary *dct, s16 bucket,
+                u8 *ptr)
+{
+        s16 next_idx = -1;
+
+        if(dct->buckets[bucket] < 0)
+                return NULL;
+
+        /*
+         * On the first call ptr will be NULL, so we have to find the first
+         * entry in the dictionary.
+         */
+        if(!ptr) {
+                return dct->buffer + (dct->buckets[bucket] * dct->entry_size);
+        }
+
+        /*
+         * Otherwise we have to get a pointer to the next entry.
+         */
+        if((next_idx = *(s16 *)ptr) < 0) {
+                return NULL;
+        }
+
+        /* Return a pointer to the entry */
+        return dct->buffer + (next_idx * dct->entry_size);
+
+        
+}
+
+PA_INTERN u8 *dct_next(struct pa_dictionary *dct, u8 *ptr)
+{
+        s16 idx = -1;
+        s16 next_idx = -1;
+        s16 bucket_num;
+
+        /*
+         * On the first call ptr will be NULL, so we have to find the first
+         * entry in the dictionary.
+         */
+        if(!ptr) {
+                bucket_num = 0;
+                while(bucket_num < PA_DICT_BUCKETS) {
+                        if(dct->buckets[bucket_num] >= 0) {
+                                idx = dct->buckets[bucket_num];
+                                ptr = dct->buffer + (idx * dct->entry_size);
+                                break;
+                        }
+                        bucket_num++;
+                }
+
+                return ptr;
+        }
+
+        /*
+         * Otherwise we have to get a pointer to the next entry.
+         */
+        next_idx = *(s16 *)ptr;
+        if(next_idx <= -2) {
+                bucket_num = (-1 * next_idx) - 2 + 1;
+                while(bucket_num < PA_DICT_BUCKETS) {
+                        if(dct->buckets[bucket_num] >= 0) {
+                                next_idx = dct->buckets[bucket_num];
+                                break;
+                        }
+                        bucket_num++;
+                }
+
+                /* No more entries left in the dictionary */
+                if(next_idx <= -2)
+                        return NULL;
+        }
+
+        /* Return a pointer to the entry */
+        return dct->buffer + (next_idx * dct->entry_size);
+}
+
+PA_INTERN u8 *dct_find_key(struct pa_dictionary *dct, char *key, u8 **prev,
+                s16 *bucket_out)
+{
+        u16 hash = dct_hash(key);
+        s16 bucket = hash % PA_DICT_BUCKETS;
+        u8 *ptr = NULL;
+        s16 off = PA_DICT_NEXT_SIZE + PA_DICT_HASH_SIZE;
+
+        if(dct->buckets[bucket] < 0)
+                return NULL;
+
+        if(bucket_out) *bucket_out = bucket;
+
+        if(prev) *prev = NULL;
+        while((ptr = dct_next_bucket(dct, bucket, ptr))) {
+                /* Compare the hashes */
+                if(hash == *(u16 *)(ptr + PA_DICT_NEXT_SIZE)) {
+                        if(pa_strcmp(key, (char *)(ptr + off)) == 0) {
+                                return ptr;
+                        }
+                }
+                if(prev) *prev = ptr;
+        }
+
+        return NULL;
+}
+
+PA_API s8 paInitDictionary(struct pa_dictionary *dct, struct pa_memory *mem,
+                s32 size, s16 alloc)
+{
+        s32 alloc_sz;
+        s16 i;
+
+        dct->memory = mem;
+        dct->mode = PA_DYNAMIC;
+
+        dct->value_size = size;
+        dct->entry_size = PA_DICT_HEAD_SIZE + size;
+        dct->number = 0;
+        dct->alloc = alloc;
+
+        alloc_sz = dct->entry_size * dct->alloc;
+        if(!(dct->buffer = pa_mem_alloc(dct->memory, NULL, alloc_sz))) {
+                return -1;
+        }
+
+        /* Reset all memory slots in the buffer */
+        for(i = 0; i < dct->alloc; i++) {
+                *(s16 *)(dct->buffer + i * dct->entry_size) = -1;
+        }
+
+        /* Reset all buckets */
+        for(i = 0; i < PA_DICT_BUCKETS; i++) {
+                dct->buckets[i] = -1;
+        }
+
+        return 0;
+}
+
+PA_API s8 paInitDictionaryFixed(struct pa_dictionary *dct, void *buffer,
+                s32 buf_sz, s32 value_sz)
+{
+        s16 i;
+
+        dct->memory = NULL;
+        dct->mode = PA_FIXED;
+
+        dct->value_size = value_sz;
+        dct->entry_size = PA_DICT_HEAD_SIZE + value_sz;
+        dct->number = 0;
+        dct->buffer = buffer;
+
+        dct->alloc = buf_sz / dct->entry_size;
+
+        /* Reset all entry-slots in the buffer */
+        for(i = 0; i < dct->alloc; i++) {
+                *(s16 *)(dct->buffer + i * dct->entry_size) = -1;
+        }
+
+        /* Reset all buckets */
+        for(i = 0; i < PA_DICT_BUCKETS; i++) {
+                dct->buckets[i] = -1;
+        }
+
+        return 0;
+}
+
+PA_API void paDestroyDictionary(struct pa_dictionary *dct)
+{
+        if(dct->mode == PA_DYNAMIC) {
+                pa_mem_free(dct->memory, dct->buffer);
+        }
+
+        dct->memory = 0;
+        dct->mode = PA_MEM_UDEF;
+
+        dct->value_size = 0;
+        dct->entry_size = 0;
+        dct->number = 0;
+        dct->alloc = 0;
+        dct->buffer = 0;
+}
+
+PA_API s8 paSetDictionary(struct pa_dictionary *dct, char *key, void *value)
+{
+        s16 slot;
+        u16 hash;
+        s16 bucket;
+        u8 *ptr;
+        s32 tmp;
+        s16 next_idx;
+
+
+        /* Validate the input parameters */
+        if(pa_strlen(key) > 32)
+                return -1;
+
+        /*
+         * If there is already an entry with the keyword in the dictionary, we
+         * can just overwrite it's value and return.
+         */
+        if((ptr = dct_find_key(dct, key, NULL, NULL))) {
+                /* Copy over the content */
+                pa_mem_copy(ptr + PA_DICT_HEAD_SIZE, value, dct->value_size);
+                return 0;
+                
+        }
+
+        /* Get an open slot in the dictionary-buffer */
+        if((slot = dct_find_open(dct)) < 0)
+                return -1;
+
+        /* Hash the key and determine the bucket  */
+        hash = dct_hash(key); 
+        bucket = hash % PA_DICT_BUCKETS;
+
+        /* 
+         * Write the copy over the data to the dictionary-buffer.
+         */
+
+        /* Set the next index */
+        ptr = dct->buffer + (slot * dct->entry_size);
+        *(s16 *)ptr = -(bucket + 2);
+        ptr += PA_DICT_NEXT_SIZE;
+
+        /* Copy the hash */
+        *(u16 *)ptr = hash;
+        ptr += PA_DICT_HASH_SIZE;
+
+        /* Copy over the keyword */
+        pa_strcpy((char *)ptr, key);
+        ptr += PA_DICT_KEY_SIZE;
+
+        /* Copy over the content */
+        pa_mem_copy(ptr, value, dct->value_size);
+
+        /*
+         * Attach the entry to the bucket.
+         */
+        if(dct->buckets[bucket] < 0) {
+                dct->buckets[bucket] = slot;
+        }
+        else {
+                tmp = dct->buckets[bucket] * dct->entry_size;
+                ptr = dct->buffer + tmp;
+                while((next_idx = *(s16 *)ptr) >= 0) {
+                        ptr = dct->buffer + next_idx * dct->entry_size;
+                }
+                *(s16 *)ptr = slot;
+        }
+
+        dct->number++;
+        return 0;
+}
+
+PA_API s8 paGetDictionary(struct pa_dictionary *dct, char *key, void *out)
+{
+        u8 *ptr;
+
+        if(!(ptr = dct_find_key(dct, key, NULL, NULL)))
+                return 0;
+
+        pa_mem_copy(out, ptr + PA_DICT_HEAD_SIZE, dct->entry_size);
+        return 1;
+}
+
+PA_API void paRemoveDictionary(struct pa_dictionary *dct, char *key)
+{
+        s16 bucket;
+        u8 *ptr;
+        u8 *prev;
+        s16 next_idx;
+
+        if((ptr = dct_find_key(dct, key, &prev, &bucket))) {
+                next_idx = *(s16 *)ptr;
+
+                if(!prev && next_idx < 0) {
+                        dct->buckets[bucket] = -1;
+                }
+                else if(!prev && next_idx >= 0) {
+                        dct->buckets[bucket] = next_idx;
+                }
+                else if(prev) {
+                        *(s16 *)prev = *(s16 *)ptr;
+                }
+
+                *(s16 *)ptr = -1;
+                dct->number--;
+        }
+}
+
+PA_API void *paIterateDictionary(struct pa_dictionary *dct, void *ptr, 
+                struct pa_dictionary_entry *ent)
+{
+        char *tmp;
+
+        /* Check if the dictionary is empty */
+        if(dct->number < 1)
+                return NULL;
+
+        /* Go to the next entry in the dictionary */
+        if(!(ptr = dct_next(dct, ptr)))
+                return NULL;
+        
+        /* Return the entry-data for the current entry */
+        if(ent) {
+                /* Copy over the key */
+                tmp = (char *)ptr + PA_DICT_NEXT_SIZE + PA_DICT_HASH_SIZE;
+                pa_strcpy(ent->key, tmp);
+
+                /* Set the pointer for the data */
+                ent->value = tmp + PA_DICT_KEY_SIZE;
+        }
+
+        return ptr;
+}
+
+PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
+                void *ptr, struct pa_dictionary_entry *ent)
+{
+        char *tmp;
+
+        /* Check if the dictionary is empty */
+        if(dct->number < 1)
+                return NULL;
+
+        if(!(ptr = dct_next_bucket(dct, bucket, ptr)))
+                return NULL;
+        
+        /* Return the data for the current entry */
+        if(ent) {
+                /* Copy over the key */
+                tmp = (char *)ptr + PA_DICT_NEXT_SIZE + PA_DICT_HASH_SIZE;
+                pa_strcpy(ent->key, tmp);
+
+                /* Set the pointer for the data */
+                ent->value = tmp + PA_DICT_KEY_SIZE;
+        }
+
+        return ptr;
 }

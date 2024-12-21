@@ -91,14 +91,19 @@ PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
  */
 
 /*
- * Count the bytes until a null-terminator is reached.
- *
- * @s: Pointer to the string
- *
- * Returns: The number up to a null-terminator
+ * A wrapper for the clib-strlen function.
  */
 PA_LIB s32 pa_strlen(char *s);
 
+/*
+ * A wrapper for the clib-strcpy function.
+ */
+PA_LIB void pa_strcpy(char *dst, char *src);
+
+/*
+ * A wrapper for the clib-strcmp function.
+ */
+PA_LIB s16 pa_strcmp(char *str1, char *str2);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

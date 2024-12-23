@@ -40,6 +40,8 @@ typedef double                  f64;
 
 #define PA_MIN(a, b)            ((a > b) ? b : a)
 #define PA_MAX(a, b)            ((a > b) ? a : b)
+#define PA_CEIL(x)              ((x-(s32)(x)) > 0 ? (s32)(x+1) : (s32)(x))
+
 
 #define PA_OVERLAP(min1, max1, min2, max2) \
         (PA_MAX(0, PA_MIN(max1, max2) - PA_MAX(min1, min2)))
@@ -340,14 +342,14 @@ typedef s8 (*pa_list_func)(struct pa_handle *hdl, void *data);
  * Returns: 0 on success or -1 if an error occurred
  */
 PA_API s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
-                s16 size, s16 alloc);
+                s32 size, s16 alloc);
 
 /*
  * Create a static list onto a buffer. This list will only operate on the given
- * memory and will not adjust size to fit new elements if the limits has been
- * reached. Note that the memory-buffer has to be big enough to fit the given
- * number of slots for the entries set through the alloc-parameters. After use
- * call paDestroyList() and then free the memory yourself.
+ * memory and will not adjust its size to fit new elements once the limits has
+ * been reached. The function will also calculate the number of usable slots in
+ * the given buffer.
+ * After use call paDestroyList() and then free the memory yourself.
  *
  * Example on how to store 20 integers:
  * ...
@@ -359,12 +361,12 @@ PA_API s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
  *
  * @lst: Pointer to the list
  * @size: The size of a single entry in bytes
- * @alloc: The number of slots
  * @buf: The buffer to store the entries in
+ * @buf_sz: The size of the given buffer in bytes
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf);
+PA_API s8 paInitListFixed(struct pa_list *lst, s16 size, void *buf, s32 buf_sz);
 
 /*
  * Destroy a list and free the allocated memory.
@@ -508,7 +510,7 @@ PA_API void paApplyListBack(struct pa_list *lst, pa_list_func fnc, void *pass);
 /*
  * -----------------------------------------------------------------------------
  *
- *      Dicitonary
+ *      Dictionary
  *
  * When pushing a new key-value-pair into the dictionary, the key is hashed and
  * the new entry consisting of the key and value memory is pushed with a next
@@ -690,6 +692,11 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
  *
  *      FLEX
  *
+ * The flex-handler is used to process size-calculations made by the user. An
+ * example would be "2px + 3pct - 8". The given string will first be tokenized
+ * and then converted to postfix-order using Dijkstra's shunting yard algorithm.
+ * The final value can then be calculated using references at any time.
+ *
  */
 
 /*
@@ -719,23 +726,69 @@ struct pa_flex_token {
 };
 
 struct pa_flex {
-        struct pa_list         tokens;
+        struct pa_list          tokens;
+
+        /* The swap list is used for processing */
+        struct pa_list          swap;
 };
 
 /*
- * 
+ * Initialize the flex-handler using the dynamic funcitionalities of the
+ * framework and preallocate the requeste number of tokens.
+ *
+ * @flx: Pointer to the flex-handler
+ * @mem: Pointer to the memory-manager
+ * @token: The initial number of token to preallocate
+ *
+ * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB s8 wut_flx_init(struct pa_flex *flx, s16 tokens);
+PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens);
 
 /*
- * 
+ * Initialize the flex-handler using a static buffer. The flex-handler will then
+ * calculate the maximum number of tokens that can be stored in the given
+ * buffer. Any attempt to push tokens into the flex-handler when it has already
+ * reached it's limit will be ignored.
+ *
+ * @flx: Pointer to the flex-handler
+ * @tok_buf: Pointer to the buffer to use for storing tokens
+ * @tok_buf_sz: The size of the given buffer
+ * @swp_buf: The swap-buffer used when processing the input-string
+ * @swp_buf_sz: The size of the swap-buffer in bytes
+ *
+ * Returns: 0 on success or -1 if an error occurred
  */
-PA_LIB void wut_flx_destroy(struct pa_flex *flx);
+PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
+                void *swp_buf, s32 swp_buf_sz);
 
 /*
- * 
+ * Destroy the struct, reset all attributes and, if configured as dynamic, free
+ * the allocated memory. By doing this you will lose all tokens in the
+ * flex-handler.
+ * Use this function after use, even if the flex-handler is configured as
+ * static.
+ *
+ * @flx: Pointer to the flex-handler
  */
-PA_LIB void wut_flx_parse(struct pa_flex *flx, char *str);
+PA_API void paDestroyFlex(struct pa_flex *flx);
+
+/*
+ * IMPORTANT: Using this function will overwrite everything already in the
+ * flex-handler!
+ *
+ * Parse an input-term by first tokenizing the input and then converting it to
+ * postfix-notation using Dijkstra's shunting yard algortihm.
+ * If the flex-handler is configured as static, the function will only write as
+ * many tokens to the flex-handler, as the limit allows. If the flex-handler is
+ * configured as dynamic, the token-list will be scaled according the the
+ * incoming number of tokens.
+ *
+ * @flx: Pointer to the flex-handler
+ * @str: A null-terminated string containing the size-expression
+ *
+ * Returns: The number of written tokens or -1 if an error occurred
+ */
+PA_LIB s16 paParseFlex(struct pa_flex *flx, char *str);
 
 
 /* 

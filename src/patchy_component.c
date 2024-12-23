@@ -480,7 +480,7 @@ PA_INTERN void lst_ensure_fit(struct pa_list *lst, s32 num)
 }
 
 PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem, 
-                s16 size, s16 alloc)
+                s32 size, s16 alloc)
 {
         s32 tmp;
 
@@ -499,13 +499,13 @@ PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
         return 0;
 }
 
-PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, s16 alloc, void *buf)
+PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, void *buf, s32 buf_sz)
 {
         lst->memory = NULL;
         lst->mode = PA_FIXED;
         lst->entry_size = size;
         lst->count = 0;
-        lst->alloc = alloc;
+        lst->alloc = buf_sz / size; /* Calculate the number of usable slots */
         lst->data = buf;
 
         paClearList(lst);
@@ -1126,4 +1126,148 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
         }
 
         return ptr;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      FLEX
+ *
+ */
+
+PA_INTERN s8 flx_inrange(char c, s8 low, s8 high)
+{
+        return ((c >= low) && (c <= high));
+}
+
+
+PA_INTERN s8 flx_is_operand(char c)
+{
+        /*
+         * The following characters are allowed:
+         * 
+         *   - numbers: 0..9
+         *   - spec. char: .
+         */
+        return (flx_inrange(c, 0x30, 0x39) || c == 0x2E);
+}
+
+
+PA_INTERN s8 flx_is_unit(char c)
+{
+        /*
+         * The following characters are allowed:
+         *
+         *   - letters: a..z and A..Z
+         *   - spec. char: %
+         */
+        return (flx_inrange(c, 0x61, 0x7A) || flx_inrange(c, 0x41, 0x5A) ||
+                        c == 0x25);
+}
+
+
+PA_INTERN s8 flx_is_operator(char c)
+{
+        /*
+         * The following characters are allowed:
+         *
+         *   -spec. char: + - * / ( )
+         */
+        return (c == 0x2B || c == 0x2D || c == 0x2A || c == 0x2F || c == 0x28 ||
+                        c == 0x29);
+}
+
+
+PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
+{
+        char buf[64];
+        char *c;
+        u8 tail = 0;
+
+        /* 		OPERAND	W/O UNIT	 */
+        if(opt == 1) {
+                c = s;
+                while(*c && (flx_inrange(*c, 0x30, 0x39) || *c == 0x2E))
+                        buf[tail++] = *c++;
+                buf[tail] = 0;
+
+                if(tail == 0) {
+                        /* No digit detected */
+                        return -1;
+                }
+
+                tok->code = 0x11;	/* const */
+                tok->value = atof(buf);
+
+                tail = 0;
+                while(*c && flx_is_unit(*c))
+                        buf[tail++] = *c++;
+                buf[tail] = 0;
+
+                if(tail != 0) {
+                        if(strcmp(buf, "px") == 0) {
+                                if(PA_CEIL(tok->value) != tok->value) {
+                                        /* Pixels must be an integer */
+                                        return -1;
+                                }
+                                tok->code = 0x12;
+                        }
+                        else if(strcmp(buf, "pct") == 0) {
+                                tok->value /= 100.0;
+
+                                tok->code = 0x13;
+                        }
+                        else if(strcmp(buf, "em") == 0) {
+                                tok->code = 0x14;
+                        }
+                        else {
+                                /* Unit invalid */
+                                return -1;
+                        }
+                }
+
+        }
+        /* 		OPERATOR		 */
+        else if(opt == 3) {
+                tok->value = 0;
+
+                switch(*s) {
+                        case 0x28: tok->code = 0x01; break; /* ( */
+                        case 0x29: tok->code = 0x02; break; /* ) */
+                        case 0x2A: tok->code = 0x03; break; /* * */
+                        case 0x2B: tok->code = 0x04; break; /* + */
+                        case 0x2D: tok->code = 0x05; break; /* - */
+                        case 0x2F: tok->code = 0x06; break; /* / */
+                }
+        }
+
+        return 0;
+}
+
+PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens)
+{
+        s32 tok_size = sizeof(struct pa_flex_token);
+        return paInitList(&flx->tokens, mem, tok_size, tokens);
+}
+
+PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
+                void *swp_buf, s32 swp_buf_sz)
+{
+        s32 size = sizeof(struct pa_flex_token);
+        
+        /* Create the swap-list */
+        if(paInitListFixed(&flx->swap, size, swp_buf, swp_buf_sz))
+                return -1;
+
+        return paInitListFixed(&flx->tokens, size, tok_buf, tok_buf_sz);
+}
+
+PA_API void paDestroyFlex(struct pa_flex *flx)
+{
+        paDestroyList(&flx->tokens);
+}
+
+PA_LIB s16 paParseFlex(struct pa_flex *flx, char *str)
+{
+
 }

@@ -1244,6 +1244,218 @@ PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
         return 0;
 }
 
+PA_INTERN struct pa_list *flx_tokenize(char *inp)
+{
+        struct pa_list *lst;
+        struct wut_flex_token tok;
+
+        char *c;
+        char buf[64];
+        u8 buf_tail;
+        u8 read;	
+        u8 fin;
+
+        if(!(lst = wut_CreateList(sizeof(struct wut_flex_token), 64))) {
+                WUT_ALARM(WUT_ERROR, "Failed to create list for tokens");
+                return NULL;
+        }
+
+        c = inp;
+        buf_tail = 0;
+
+        read = 0;
+        fin = 0;
+
+        do {
+                if(*c == 0x00) {
+                        fin = read;
+                }
+                /* 		SPACE		 */
+                else if(*c == 0x20) {
+                        /* Do nothing */
+                }
+                /* 		OPERAND		 */
+                else if(flx_is_operand(*c) || flx_is_unit(*c)) {
+                        /* Start reading operand */
+                        if(read == 0) {
+                                read = 1;
+                                buf_tail = 0;
+                        }
+                        else if(read != 1) {
+                                fin = read;
+                                read = 1;
+
+                        }
+                }
+                /* 		OPERATOR	 */
+                else if(flx_is_operator(*c)) {
+                        /* Start reading operator */
+                        if(read == 0) {
+                                read = 3;
+                                buf_tail = 0;
+                        }
+                        else if(read != 3) {
+                                fin = read;
+                                read = 3;
+                        }
+                }
+                else {
+                        WUT_ALARM(WUT_ERROR, "Invalid character");
+                        goto err_destroy_list;
+                }
+
+
+                if(fin) {
+                        buf[buf_tail] = 0;
+
+                        wut_tfm_strip(buf);
+                        if(flx_parse_token(fin, buf, &tok) < 0) {
+                                WUT_ALARM(WUT_ERROR, "Invalid expression");
+                                goto err_destroy_list;
+                        }
+
+                        if(wut_PushList(lst, &tok) < 0) {
+                                WUT_ALARM(WUT_ERROR, "Failed to add token to list");
+                                goto err_destroy_list;
+                        }
+
+                        buf_tail = 0;
+                        fin = 0;
+                }
+
+
+                if(read) {
+                        buf[buf_tail] = *c;
+                        buf_tail++;
+                }
+
+        } while(*(c++));
+
+        return lst;
+
+err_destroy_list:
+        wut_DestroyList(lst);
+        return NULL;
+}
+
+
+PA_INTERN s8 flx_operator_prio(struct wut_flex_token *tok)
+{
+        switch(tok->code) {
+                case 0x03: return 0x03;	/* * */
+                case 0x04: return 0x02;	/* + */
+                case 0x05: return 0x02;	/* - */
+                case 0x06: return 0x03;	/* / */
+        }
+        return 0x00;
+}
+
+
+PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
+{
+        struct pa_list *output;
+        struct pa_list *operators;
+        struct wut_flex_token tok;
+        struct wut_flex_token tok_swp;
+        u8 prio[2];
+        u8 check;
+        u8 opensign = 0; /* 0: positive, 1: negative */
+
+        if(!(output = wut_CreateList(sizeof(struct wut_flex_token), 10))) {
+                WUT_ALARM(WUT_ERROR, "Failed to create output list");
+                return -1;
+        }
+
+        if(!(operators = wut_CreateList(sizeof(struct wut_flex_token), 10))) {
+                WUT_ALARM(WUT_ERROR, "Failed to create operator list");
+                goto err_destroy_output;
+        }
+
+        while(wut_ShiftList(inp, &tok)) {
+                /* Push operand to output */
+                if(tok.code > 0x06) {
+                        /* To indicate the first operand is negative */
+                        if(opensign) {
+                                tok.value *= -1.0;
+                                opensign = 0;
+                        }
+
+                        wut_PushList(output, &tok);
+                }
+                /* Push operator into operator-stack */
+                else if(tok.code >= 0x03 && tok.code <= 0x06) {
+                        if(output->count < 1) {
+                                if(tok.code != 0x04 && tok.code != 0x05) {
+                                        WUT_ALARM(WUT_ERROR, "Missing operand");
+                                        goto err_destroy_operators;
+                                }
+                                /*
+                                 * Hotfix, so that the initial operand can be
+                                 * negative.
+                                 */
+                                else if(tok.code == 0x05) {
+                                        opensign = 1;
+                                }
+                                continue;
+                        }
+
+                        while(wut_PopList(operators, &tok_swp)) {
+                                prio[0] = flx_operator_prio(&tok);
+                                prio[1] = flx_operator_prio(&tok_swp);
+
+                                if(tok.code == 1 || prio[0] > prio[1]) {
+                                        wut_PushList(operators, &tok_swp);
+                                        break;
+                                }
+
+                                wut_PushList(output, &tok_swp);
+                        }
+
+                        wut_PushList(operators, &tok);
+                }
+                /* Handle opening-bracket '(' */
+                else if(tok.code == 0x01) {
+                        wut_PushList(operators, &tok);
+                }
+                /* Handle closing-bracket ')' */
+                else if(tok.code == 0x02) {
+                        if(operators->count < 1) {
+                                WUT_ALARM(WUT_ERROR, "Missing opening bracket");
+                                goto err_destroy_operators;
+                        }
+
+                        check = 0;
+                        while(wut_PopList(operators, &tok_swp)) {
+                                if(tok_swp.code == 0x01) {
+                                        check = 1;
+                                        break;
+                                }
+                                wut_PushList(output, &tok_swp);
+                        }
+                        if(!check) {
+                                WUT_ALARM(WUT_ERROR, "Missing opening bracket");
+                                goto err_destroy_operators;
+                        }
+                }
+        }
+
+        while(wut_PopList(operators, &tok))
+                wut_PushList(output, &tok);
+
+
+        wut_DestroyList(operators);
+        *out = output;
+
+        return 0;
+
+err_destroy_operators:
+        wut_DestroyList(operators);
+
+err_destroy_output:
+        wut_DestroyList(output);
+        return -1;
+}
+
 PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens)
 {
         s32 tok_size = sizeof(struct pa_flex_token);

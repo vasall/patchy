@@ -1256,7 +1256,7 @@ PA_INTERN struct pa_list *flx_tokenize(char *inp)
         u8 fin;
 
         if(!(lst = wut_CreateList(sizeof(struct wut_flex_token), 64))) {
-                WUT_ALARM(WUT_ERROR, "Failed to create list for tokens");
+                /* Failed to create list */
                 return NULL;
         }
 
@@ -1300,7 +1300,7 @@ PA_INTERN struct pa_list *flx_tokenize(char *inp)
                         }
                 }
                 else {
-                        WUT_ALARM(WUT_ERROR, "Invalid character");
+                        /* Invalid character */
                         goto err_destroy_list;
                 }
 
@@ -1310,12 +1310,12 @@ PA_INTERN struct pa_list *flx_tokenize(char *inp)
 
                         wut_tfm_strip(buf);
                         if(flx_parse_token(fin, buf, &tok) < 0) {
-                                WUT_ALARM(WUT_ERROR, "Invalid expression");
+                                /* Invalid expression */
                                 goto err_destroy_list;
                         }
 
                         if(wut_PushList(lst, &tok) < 0) {
-                                WUT_ALARM(WUT_ERROR, "Failed to add token to list");
+                                /* Failed to add token to list */
                                 goto err_destroy_list;
                         }
 
@@ -1362,12 +1362,12 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
         u8 opensign = 0; /* 0: positive, 1: negative */
 
         if(!(output = wut_CreateList(sizeof(struct wut_flex_token), 10))) {
-                WUT_ALARM(WUT_ERROR, "Failed to create output list");
+                /* Failed to create output list */
                 return -1;
         }
 
         if(!(operators = wut_CreateList(sizeof(struct wut_flex_token), 10))) {
-                WUT_ALARM(WUT_ERROR, "Failed to create operator list");
+                /* Failed to create operator list */
                 goto err_destroy_output;
         }
 
@@ -1386,7 +1386,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                 else if(tok.code >= 0x03 && tok.code <= 0x06) {
                         if(output->count < 1) {
                                 if(tok.code != 0x04 && tok.code != 0x05) {
-                                        WUT_ALARM(WUT_ERROR, "Missing operand");
+                                        /* Missing operand */
                                         goto err_destroy_operators;
                                 }
                                 /*
@@ -1420,7 +1420,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                 /* Handle closing-bracket ')' */
                 else if(tok.code == 0x02) {
                         if(operators->count < 1) {
-                                WUT_ALARM(WUT_ERROR, "Missing opening bracket");
+                                /* Missing opening bracket */
                                 goto err_destroy_operators;
                         }
 
@@ -1433,7 +1433,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                                 wut_PushList(output, &tok_swp);
                         }
                         if(!check) {
-                                WUT_ALARM(WUT_ERROR, "Missing opening bracket");
+                                /* Missing opening bracket */
                                 goto err_destroy_operators;
                         }
                 }

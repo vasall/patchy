@@ -749,17 +749,21 @@ PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens);
  * calculate the maximum number of tokens that can be stored in the given
  * buffer. Any attempt to push tokens into the flex-handler when it has already
  * reached it's limit will be ignored.
+ * Usually, the token-buffer and swap-buffer have to be the same size and the 
+ * stack-buffer need half the memory of the token-buffer.
  *
  * @flx: Pointer to the flex-handler
  * @tok_buf: Pointer to the buffer to use for storing tokens
  * @tok_buf_sz: The size of the given buffer
  * @swp_buf: The swap-buffer used when processing the input-string
  * @swp_buf_sz: The size of the swap-buffer in bytes
+ * @stk_buf: The stack used for ordering the tokens
+ * @stk_buf_sz: The size of the stack-buffer in bytes
  *
  * Returns: 0 on success or -1 if an error occurred
  */
 PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
-                void *swp_buf, s32 swp_buf_sz);
+                void *swp_buf, s32 swp_buf_sz, void *stk_buf, s32 stk_buf_sz);
 
 /*
  * Destroy the struct, reset all attributes and, if configured as dynamic, free

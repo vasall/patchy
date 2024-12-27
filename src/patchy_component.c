@@ -816,7 +816,7 @@ PA_INTERN u8 *dct_next_bucket(struct pa_dictionary *dct, s16 bucket,
         /* Return a pointer to the entry */
         return dct->buffer + (next_idx * dct->entry_size);
 
-        
+
 }
 
 PA_INTERN u8 *dct_next(struct pa_dictionary *dct, u8 *ptr)
@@ -991,7 +991,7 @@ PA_API s8 paSetDictionary(struct pa_dictionary *dct, char *key, void *value)
                 /* Copy over the content */
                 pa_mem_copy(ptr + PA_DICT_HEAD_SIZE, value, dct->value_size);
                 return 0;
-                
+
         }
 
         /* Get an open slot in the dictionary-buffer */
@@ -1089,7 +1089,7 @@ PA_API void *paIterateDictionary(struct pa_dictionary *dct, void *ptr,
         /* Go to the next entry in the dictionary */
         if(!(ptr = dct_next(dct, ptr)))
                 return NULL;
-        
+
         /* Return the entry-data for the current entry */
         if(ent) {
                 /* Copy over the key */
@@ -1114,7 +1114,7 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
 
         if(!(ptr = dct_next_bucket(dct, bucket, ptr)))
                 return NULL;
-        
+
         /* Return the data for the current entry */
         if(ent) {
                 /* Copy over the key */
@@ -1135,49 +1135,51 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
  *
  */
 
+/*
+ * Return 1 if the given character is in range defined by low and high.
+ * Otherwise return 0.
+ */
 PA_INTERN s8 flx_inrange(char c, s8 low, s8 high)
 {
         return ((c >= low) && (c <= high));
 }
 
-
+/*
+ * Return 1 if character is one of the following:
+ * 
+ *   - numbers: 0..9
+ *   - spec. char: .
+ */
 PA_INTERN s8 flx_is_operand(char c)
 {
-        /*
-         * The following characters are allowed:
-         * 
-         *   - numbers: 0..9
-         *   - spec. char: .
-         */
+
         return (flx_inrange(c, 0x30, 0x39) || c == 0x2E);
 }
 
-
+/*
+ * Return 1 if character is one of the following:
+ *
+ *   - letters: a..z and A..Z
+ *   - spec. char: %
+ */
 PA_INTERN s8 flx_is_unit(char c)
 {
-        /*
-         * The following characters are allowed:
-         *
-         *   - letters: a..z and A..Z
-         *   - spec. char: %
-         */
         return (flx_inrange(c, 0x61, 0x7A) || flx_inrange(c, 0x41, 0x5A) ||
                         c == 0x25);
 }
 
-
+/*
+ * Return 1 if character is one of the following:
+ *
+ *   -spec. char: + - * / ( )
+ */
 PA_INTERN s8 flx_is_operator(char c)
 {
-        /*
-         * The following characters are allowed:
-         *
-         *   -spec. char: + - * / ( )
-         */
         return (c == 0x2B || c == 0x2D || c == 0x2A || c == 0x2F || c == 0x28 ||
                         c == 0x29);
 }
 
-
+/* input string <s> -> output token <tok> */
 PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
 {
         char buf[64];
@@ -1314,7 +1316,7 @@ PA_INTERN struct pa_list *flx_tokenize(char *inp)
                                 goto err_destroy_list;
                         }
 
-                        if(wut_PushList(lst, &tok) < 0) {
+                        if(paPushList(lst, &tok) < 0) {
                                 /* Failed to add token to list */
                                 goto err_destroy_list;
                         }
@@ -1380,7 +1382,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                                 opensign = 0;
                         }
 
-                        wut_PushList(output, &tok);
+                        paPushList(output, &tok);
                 }
                 /* Push operator into operator-stack */
                 else if(tok.code >= 0x03 && tok.code <= 0x06) {
@@ -1404,18 +1406,18 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                                 prio[1] = flx_operator_prio(&tok_swp);
 
                                 if(tok.code == 1 || prio[0] > prio[1]) {
-                                        wut_PushList(operators, &tok_swp);
+                                        paPushList(operators, &tok_swp);
                                         break;
                                 }
 
-                                wut_PushList(output, &tok_swp);
+                                paPushList(output, &tok_swp);
                         }
 
-                        wut_PushList(operators, &tok);
+                        paPushList(operators, &tok);
                 }
                 /* Handle opening-bracket '(' */
                 else if(tok.code == 0x01) {
-                        wut_PushList(operators, &tok);
+                        paPushList(operators, &tok);
                 }
                 /* Handle closing-bracket ')' */
                 else if(tok.code == 0x02) {
@@ -1430,7 +1432,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                                         check = 1;
                                         break;
                                 }
-                                wut_PushList(output, &tok_swp);
+                                paPushList(output, &tok_swp);
                         }
                         if(!check) {
                                 /* Missing opening bracket */
@@ -1440,7 +1442,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
         }
 
         while(wut_PopList(operators, &tok))
-                wut_PushList(output, &tok);
+                paPushList(output, &tok);
 
 
         wut_DestroyList(operators);
@@ -1466,7 +1468,7 @@ PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
                 void *swp_buf, s32 swp_buf_sz)
 {
         s32 size = sizeof(struct pa_flex_token);
-        
+
         /* Create the swap-list */
         if(paInitListFixed(&flx->swap, size, swp_buf, swp_buf_sz))
                 return -1;

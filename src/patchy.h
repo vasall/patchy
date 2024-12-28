@@ -699,6 +699,8 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
  *
  */
 
+#define PA_FLX_READ_BUFFER_SIZE        64
+
 /*
  * ----  CODE-TABLE  ----
  *
@@ -728,9 +730,13 @@ struct pa_flex_token {
 struct pa_flex {
         struct pa_list          tokens;
 
-        /* The swap list is used for processing */
+        /* Lists used while processing the flex */
         struct pa_list          swap;
+        struct pa_list          stack;
 };
+
+
+PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok);
 
 /*
  * Initialize the flex-handler using the dynamic funcitionalities of the

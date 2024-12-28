@@ -1,8 +1,6 @@
 #include "patchy.h"
 #include "patchy_internal.h"
 
-#include <stdio.h>
-
 /*
  * -----------------------------------------------------------------------------
  *
@@ -1179,27 +1177,33 @@ PA_INTERN s8 flx_is_operator(char c)
                         c == 0x29);
 }
 
-/* input string <s> -> output token <tok> */
-PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
+/* 
+ * input string <s> -> output token <tok> 
+ * 
+ * @opt: Type of token to parse(Operator/Operand)
+ * @s: The null-terminated string containing the token
+ * @tok: A pointer to write the token to
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
 {
         char buf[64];
         char *c;
         u8 tail = 0;
 
-        /* 		OPERAND	W/O UNIT	 */
+        /* 		OPERAND	         	 */
         if(opt == 1) {
                 c = s;
                 while(*c && (flx_inrange(*c, 0x30, 0x39) || *c == 0x2E))
                         buf[tail++] = *c++;
                 buf[tail] = 0;
 
-                if(tail == 0) {
-                        /* No digit detected */
-                        return -1;
-                }
+                /* No digit detected */
+                if(tail < 1) return -1;
 
                 tok->code = 0x11;	/* const */
-                tok->value = atof(buf);
+                tok->value = (f32)pa_atof(buf);
 
                 tail = 0;
                 while(*c && flx_is_unit(*c))
@@ -1208,10 +1212,8 @@ PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
 
                 if(tail != 0) {
                         if(strcmp(buf, "px") == 0) {
-                                if(PA_CEIL(tok->value) != tok->value) {
-                                        /* Pixels must be an integer */
-                                        return -1;
-                                }
+                                /* A pixel-value has to be an integer */
+                                tok->value = (s32)tok->value;
                                 tok->code = 0x12;
                         }
                         else if(strcmp(buf, "pct") == 0) {
@@ -1246,21 +1248,30 @@ PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
         return 0;
 }
 
-PA_INTERN struct pa_list *flx_tokenize(char *inp)
+#if 0
+/*
+ * Go through the null-terminated string and tokeninze the different expressions.
+ * Input-string <str> -> Token-List
+ *
+ * The tokenizing works through a state-machine where depending on the
+ * reading-state, the characters will be inserted into the reading-buffer.
+ *
+ * read-states:
+ *   0: Don't read to buffer
+ *   1: Read operand(ie. 12px, 3, 4pct)
+ *   2: Read operator(ie. + - / *)
+ *
+ */
+PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
 {
-        struct pa_list *lst;
+        struct pa_list *lst = &flx->tokens;
         struct wut_flex_token tok;
 
         char *c;
-        char buf[64];
+        char buf[PA_FLX_READ_BUFFER_SIZE];
         u8 buf_tail;
         u8 read;	
         u8 fin;
-
-        if(!(lst = wut_CreateList(sizeof(struct wut_flex_token), 64))) {
-                /* Failed to create list */
-                return NULL;
-        }
 
         c = inp;
         buf_tail = 0;
@@ -1269,6 +1280,7 @@ PA_INTERN struct pa_list *flx_tokenize(char *inp)
         fin = 0;
 
         do {
+                /* Null-terminator, Stop */
                 if(*c == 0x00) {
                         fin = read;
                 }
@@ -1458,6 +1470,8 @@ err_destroy_output:
         return -1;
 }
 
+#endif
+
 PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens)
 {
         s32 tok_size = sizeof(struct pa_flex_token);
@@ -1465,15 +1479,30 @@ PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens)
 }
 
 PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
-                void *swp_buf, s32 swp_buf_sz)
+                void *swp_buf, s32 swp_buf_sz, void *stk_buf, s32 stk_buf_sz)
 {
         s32 size = sizeof(struct pa_flex_token);
 
         /* Create the swap-list */
-        if(paInitListFixed(&flx->swap, size, swp_buf, swp_buf_sz))
+        if(paInitListFixed(&flx->swap, size, swp_buf, swp_buf_sz) < 0)
                 return -1;
 
-        return paInitListFixed(&flx->tokens, size, tok_buf, tok_buf_sz);
+        /* Create the stack-list */
+        if(paInitListFixed(&flx->stack, size, stk_buf, stk_buf_sz) < 0)
+                goto err_destroy_swp;
+
+        if(paInitListFixed(&flx->tokens, size, tok_buf, tok_buf_sz) < 0)
+                goto err_destroy_stk;
+
+        return 0;
+
+err_destroy_stk:
+        paDestroyList(&flx->stack);
+
+err_destroy_swp:
+        paDestroyList(&flx->swap);
+
+        return -1;
 }
 
 PA_API void paDestroyFlex(struct pa_flex *flx)

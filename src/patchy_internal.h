@@ -91,6 +91,30 @@ PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
  */
 
 /*
+ * Returns 1 for ASCII-space-character.
+ * Otherwise returns 0.
+ */
+PA_LIB s8 pa_isspace(char c);
+
+/*
+ * Returns 1 for ASCII-characters A..Z, a..z.
+ * Otherwise returns 0.
+ */
+PA_LIB s8 pa_isletter(char c);
+
+/*
+ * Returns 1 for ASCII-characters 0..9.
+ * Otherwise returns 0.
+ */
+PA_LIB s8 pa_isdigit(char c);
+
+/*
+ * Returns 1 for ASCII-characters 0..9, A..Z, a..z.
+ * Otherwise returns 0.
+ */
+PA_LIB s8 pa_ishexcode(char c);
+
+/*
  * A wrapper for the clib-strlen function.
  */
 PA_LIB s32 pa_strlen(char *s);
@@ -104,6 +128,38 @@ PA_LIB void pa_strcpy(char *dst, char *src);
  * A wrapper for the clib-strcmp function.
  */
 PA_LIB s16 pa_strcmp(char *str1, char *str2);
+
+/*
+ * Trim the leading and trailing spaces from a string by moving the string
+ * pointer to the first character and write a null-terminator after the last
+ * character. This function will not move the characters to the beginning of the
+ * string-buffer, so watch out to not lose the pointer for the original memory.
+ *
+ * @s: Pointer to the null-terminated string to trim
+ *
+ * Returns: The updated pointer to the string 
+ */
+PA_LIB char *pa_trim(char *str);
+
+/*
+ * Convert the input string containing ASCII-encoded numbers into an usable
+ * integer-value.
+ *
+ * @s: The null-terminated string containing the ASCII-encoded integer-value
+ *
+ * Returns: The resulting integer value
+ */
+PA_LIB s64 pa_atoi(char *s);
+
+/*
+ * Convert the input string containing an ASCII-encoded floating-point value
+ * into a usable float.
+ *
+ * @s: The null-terminated string containing the ASCII-encoded float-value
+ *
+ * Returns: The resulting float value
+ */
+PA_LIB f64 pa_atof(char *s);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

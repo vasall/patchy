@@ -89,6 +89,21 @@ PA_LIB char *pa_trim(char *str)
         return str;
 }
 
+
+PA_LIB char *pa_strip(char *str)
+{
+        char *d = str;
+        char *p = str;
+
+        do {
+                while(*d == 0x20)
+                        d++;
+
+        } while((*(str++) = *(d++)));
+
+        return p;
+}
+
 PA_LIB s64 pa_atoi(char *s)
 {
         char *run = s + pa_strlen(s) - 1;

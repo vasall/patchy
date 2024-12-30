@@ -1,6 +1,8 @@
 #include "patchy.h"
 #include "patchy_internal.h"
 
+#include <stdio.h>
+
 /*
  * -----------------------------------------------------------------------------
  *
@@ -702,6 +704,48 @@ PA_LIB s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num)
         return entry_number;
 }
 
+PA_API s16 paCopyList(struct pa_list *dst, struct pa_list *src,
+                s16 dst_off, s16 src_off, s16 num)
+{
+        s16 read_num;
+        s16 write_num;
+        s32 read_off;
+        s32 write_free;
+        s32 write_off;
+        s32 size;
+        s16 overlap;
+
+        /* Validate input parameters */
+        if(src_off < 0 || src_off >= src->count) return -1;
+        if(dst_off < -1 || dst_off > dst->count) return -1;
+        if(src->entry_size != dst->entry_size) return -1;
+
+        /* Resolve parameters */
+        dst_off = dst_off == PA_END ? dst->count : dst_off;
+        num = num == PA_ALL ? (src->count - src_off) : num;
+
+        /* Figure out the potential overlap in the destination-list */
+        overlap = PA_OVERLAP(0, dst->count, dst_off, num);
+
+        /* Scale to fit new entries */
+        lst_ensure_fit(dst, num - overlap);
+
+        /* Calculate how many entries can be actually be copied */
+        read_num = src->count - src_off;
+        write_free = (dst->alloc - dst->count) + overlap;
+        num = PA_MIN(num, PA_MIN(read_num, write_free));
+
+        /* Copy over the entries to the source */
+        size = src->entry_size * num;
+        read_off = src_off * src->entry_size;
+        write_off = dst_off * src->entry_size;
+        pa_mem_copy(dst->data + write_off, src->data + read_off, size);
+
+        /* Update the number of entries in the destionation-list and return */
+        dst->count += num - overlap;
+        return num;
+}
+
 PA_API void *paIterateList(struct pa_list *lst, void *ptr)
 {
         /* First step, set pointer to beginning of data buffer */
@@ -1211,17 +1255,17 @@ PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
                 buf[tail] = 0;
 
                 if(tail != 0) {
-                        if(strcmp(buf, "px") == 0) {
+                        if(pa_strcmp(buf, "px") == 0) {
                                 /* A pixel-value has to be an integer */
                                 tok->value = (s32)tok->value;
                                 tok->code = 0x12;
                         }
-                        else if(strcmp(buf, "pct") == 0) {
+                        else if(pa_strcmp(buf, "pct") == 0) {
                                 tok->value /= 100.0;
 
                                 tok->code = 0x13;
                         }
-                        else if(strcmp(buf, "em") == 0) {
+                        else if(pa_strcmp(buf, "em") == 0) {
                                 tok->code = 0x14;
                         }
                         else {
@@ -1248,7 +1292,6 @@ PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
         return 0;
 }
 
-#if 0
 /*
  * Go through the null-terminated string and tokeninze the different expressions.
  * Input-string <str> -> Token-List
@@ -1264,8 +1307,7 @@ PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
  */
 PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
 {
-        struct pa_list *lst = &flx->tokens;
-        struct wut_flex_token tok;
+        struct pa_flex_token tok;
 
         char *c;
         char buf[PA_FLX_READ_BUFFER_SIZE];
@@ -1273,7 +1315,7 @@ PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
         u8 read;	
         u8 fin;
 
-        c = inp;
+        c = str;
         buf_tail = 0;
 
         read = 0;
@@ -1315,22 +1357,22 @@ PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
                 }
                 else {
                         /* Invalid character */
-                        goto err_destroy_list;
+                        return;
                 }
 
 
                 if(fin) {
                         buf[buf_tail] = 0;
+                        pa_strip(buf);
 
-                        wut_tfm_strip(buf);
                         if(flx_parse_token(fin, buf, &tok) < 0) {
                                 /* Invalid expression */
-                                goto err_destroy_list;
+                                return;
                         }
 
-                        if(paPushList(lst, &tok) < 0) {
+                        if(paPushList(&flx->tokens, &tok, 1) < 0) {
                                 /* Failed to add token to list */
-                                goto err_destroy_list;
+                                return;
                         }
 
                         buf_tail = 0;
@@ -1344,16 +1386,9 @@ PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
                 }
 
         } while(*(c++));
-
-        return lst;
-
-err_destroy_list:
-        wut_DestroyList(lst);
-        return NULL;
 }
 
-
-PA_INTERN s8 flx_operator_prio(struct wut_flex_token *tok)
+PA_INTERN s8 flx_operator_prio(struct pa_flex_token *tok)
 {
         switch(tok->code) {
                 case 0x03: return 0x03;	/* * */
@@ -1364,28 +1399,25 @@ PA_INTERN s8 flx_operator_prio(struct wut_flex_token *tok)
         return 0x00;
 }
 
-
-PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
+PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
 {
-        struct pa_list *output;
+        struct pa_list *tokens;
+        struct pa_list *swap;
         struct pa_list *operators;
-        struct wut_flex_token tok;
-        struct wut_flex_token tok_swp;
+
+        struct pa_flex_token tok;
+        struct pa_flex_token tok_swp;
+
         u8 prio[2];
         u8 check;
         u8 opensign = 0; /* 0: positive, 1: negative */
 
-        if(!(output = wut_CreateList(sizeof(struct wut_flex_token), 10))) {
-                /* Failed to create output list */
-                return -1;
-        }
+        /* Assign shortcuts for the lists */
+        tokens = &flx->tokens;
+        swap = &flx->swap;
+        operators = &flx->stack;
 
-        if(!(operators = wut_CreateList(sizeof(struct wut_flex_token), 10))) {
-                /* Failed to create operator list */
-                goto err_destroy_output;
-        }
-
-        while(wut_ShiftList(inp, &tok)) {
+        while(paShiftList(tokens, &tok, 1)) {
                 /* Push operand to output */
                 if(tok.code > 0x06) {
                         /* To indicate the first operand is negative */
@@ -1394,14 +1426,14 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                                 opensign = 0;
                         }
 
-                        paPushList(output, &tok);
+                        paPushList(swap, &tok, 1);
                 }
                 /* Push operator into operator-stack */
                 else if(tok.code >= 0x03 && tok.code <= 0x06) {
-                        if(output->count < 1) {
+                        if(swap->count < 1) {
                                 if(tok.code != 0x04 && tok.code != 0x05) {
                                         /* Missing operand */
-                                        goto err_destroy_operators;
+                                        goto err_return;
                                 }
                                 /*
                                  * Hotfix, so that the initial operand can be
@@ -1410,88 +1442,105 @@ PA_INTERN s8 flx_shunting_yard(struct pa_list *inp, struct pa_list **out)
                                 else if(tok.code == 0x05) {
                                         opensign = 1;
                                 }
+
                                 continue;
                         }
 
-                        while(wut_PopList(operators, &tok_swp)) {
+                        while(paPopList(operators, &tok_swp, 1)) {
                                 prio[0] = flx_operator_prio(&tok);
                                 prio[1] = flx_operator_prio(&tok_swp);
 
                                 if(tok.code == 1 || prio[0] > prio[1]) {
-                                        paPushList(operators, &tok_swp);
+                                        paPushList(operators, &tok_swp, 1);
                                         break;
                                 }
 
-                                paPushList(output, &tok_swp);
+                                paPushList(swap, &tok_swp, 1);
                         }
 
-                        paPushList(operators, &tok);
+                        paPushList(operators, &tok, 1);
                 }
                 /* Handle opening-bracket '(' */
                 else if(tok.code == 0x01) {
-                        paPushList(operators, &tok);
+                        paPushList(operators, &tok, 1);
                 }
                 /* Handle closing-bracket ')' */
                 else if(tok.code == 0x02) {
                         if(operators->count < 1) {
                                 /* Missing opening bracket */
-                                goto err_destroy_operators;
+                                goto err_return;
                         }
 
                         check = 0;
-                        while(wut_PopList(operators, &tok_swp)) {
+                        while(paPopList(operators, &tok_swp, 1)) {
                                 if(tok_swp.code == 0x01) {
                                         check = 1;
                                         break;
                                 }
-                                paPushList(output, &tok_swp);
+                                paPushList(swap, &tok_swp, 1);
                         }
                         if(!check) {
                                 /* Missing opening bracket */
-                                goto err_destroy_operators;
+                                goto err_return;
                         }
                 }
         }
 
-        while(wut_PopList(operators, &tok))
-                paPushList(output, &tok);
+        /* Copy over all operators to the swap-list */
+        while(paPopList(operators, &tok, 1))
+                paPushList(swap, &tok, 1);
 
-
-        wut_DestroyList(operators);
-        *out = output;
+        /* Copy swap-list back to token-list */
+        paCopyList(tokens, swap, PA_START, PA_START, PA_ALL);       
 
         return 0;
 
-err_destroy_operators:
-        wut_DestroyList(operators);
-
-err_destroy_output:
-        wut_DestroyList(output);
+err_return:
         return -1;
 }
 
-#endif
-
 PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens)
 {
-        s32 tok_size = sizeof(struct pa_flex_token);
-        return paInitList(&flx->tokens, mem, tok_size, tokens);
+        s32 toksize = sizeof(struct pa_flex_token);
+
+        /* Create the swap-list */
+        if(paInitList(&flx->swap, mem, toksize, tokens) < 0)
+                return -1;
+
+        /* Create the stack-list */
+        if(paInitList(&flx->stack, mem, toksize, 20) < 0)
+                goto err_destroy_swp;
+
+        /* Create the token-list */
+        if(paInitList(&flx->tokens, mem, toksize, tokens) < 0)
+                goto err_destroy_stk;
+
+        return 0;
+
+err_destroy_stk:
+        paDestroyList(&flx->stack);
+
+err_destroy_swp:
+        paDestroyList(&flx->swap);
+
+        return -1;
 }
 
 PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
                 void *swp_buf, s32 swp_buf_sz, void *stk_buf, s32 stk_buf_sz)
 {
-        s32 size = sizeof(struct pa_flex_token);
+        s32 toksize = sizeof(struct pa_flex_token);
 
         /* Create the swap-list */
-        if(paInitListFixed(&flx->swap, size, swp_buf, swp_buf_sz) < 0)
+        if(paInitListFixed(&flx->swap, toksize, swp_buf, swp_buf_sz) < 0)
                 return -1;
 
         /* Create the stack-list */
-        if(paInitListFixed(&flx->stack, size, stk_buf, stk_buf_sz) < 0)
+        if(paInitListFixed(&flx->stack, toksize, stk_buf, stk_buf_sz) < 0)
                 goto err_destroy_swp;
 
-        if(paInitListFixed(&flx->tokens, size, tok_buf, tok_buf_sz) < 0)
+        /* Create the token-list */
+        if(paInitListFixed(&flx->tokens, toksize, tok_buf, tok_buf_sz) < 0)
                 goto err_destroy_stk;
 
         return 0;

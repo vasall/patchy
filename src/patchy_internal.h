@@ -142,6 +142,18 @@ PA_LIB s16 pa_strcmp(char *str1, char *str2);
 PA_LIB char *pa_trim(char *str);
 
 /*
+ * Remove all characters from the string, move all characters so they're
+ * consecutive and update the null-terminator. All modifications will be applied
+ * to the given string-buffer. To preserve the original state, duplicate the
+ * buffer. The original pointer for the string-buffer will not be lost.
+ *
+ * @str: Pointer to the null-terminated string to strip
+ *
+ * Returns: A pointer to the updated string
+ */
+PA_LIB char *pa_strip(char *str);
+
+/*
  * Convert the input string containing ASCII-encoded numbers into an usable
  * integer-value.
  *

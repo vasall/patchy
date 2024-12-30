@@ -471,6 +471,25 @@ PA_API s16 paPeekList(struct pa_list *lst, void *dst, s16 start, s16 num);
 PA_API s16 paGetList(struct pa_list *lst, void *dst, s16 start, s16 num);
 
 /*
+ * Copy entries from one list to another. Note that both lists have to be
+ * initialized already, with the same entry-size! The requested entries will
+ * be copied over from the source to the destination. If the destination-list is
+ * configured as static, only as many entries will be copied as will fit into
+ * the given memory-space. If the list is configured as dynamic, it will scale
+ * to fit all entries.
+ *
+ * @dst: Pointer to the destination-list to copy to
+ * @src: Pointer to the source-list to copy from
+ * @dst_off: The starting offset for the destination-list to start copying to
+ * @src_off: The starting offset for the source-list to start copying from
+ * @num: The number of entries to copy over
+ *
+ * Returns: The number of copied entries or -1 if an error occurred
+ */
+PA_API s16 paCopyList(struct pa_list *dst, struct pa_list *src,
+                s16 dst_off, s16 src_off, s16 num);
+
+/*
  * Get a pointer to the next entry in the list. For the first step pass NULL for
  * ptr.
  * Example on how to iterate through the whole list:

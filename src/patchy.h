@@ -51,6 +51,8 @@ typedef double                  f64;
 
 #define PA_ALL                   -1
 
+#define PA_NOLIM                 -1
+
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  *
@@ -325,6 +327,9 @@ struct pa_list {
         s16 count;  /* Number of used slots */
         s16 inuse;  /* The total size of all used slots in bytes */
         s16 alloc;  /* Number of allocated slots */
+
+        s32 alloc_size; /* The size of allocated buffer in bytes */
+        s32 limit;  /* The absolute limit for the size in bytes */
 };
 
 typedef s8 (*pa_list_func)(struct pa_handle *hdl, void *data);
@@ -338,11 +343,12 @@ typedef s8 (*pa_list_func)(struct pa_handle *hdl, void *data);
  * @mem: Pointer to the memory-manager
  * @size: The size of a single entry in bytes
  * @alloc: The initial number of slots to preallocate
+ * @lim: The number of bytes to allocate at max, use -1 for no limit
  *
  * Returns: 0 on success or -1 if an error occurred
  */
 PA_API s8 paInitList(struct pa_list *lst, struct pa_memory *mem,
-                s32 size, s16 alloc);
+                s32 size, s16 alloc, s32 lim);
 
 /*
  * Create a static list onto a buffer. This list will only operate on the given

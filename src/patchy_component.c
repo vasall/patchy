@@ -468,30 +468,43 @@ PA_INTERN void lst_ensure_fit(struct pa_list *lst, s32 num)
         s32 new_size;
         void *p;
 
-        if(new_num > lst->alloc && lst->mode == PA_DYNAMIC) {
-                new_alloc = new_num * 1.5; 
-                new_size = new_alloc * lst->entry_size;
-                if(!(p = pa_mem_alloc(lst->memory, lst->data, new_size)))
-                        return;
+        if(lst->mode != PA_DYNAMIC)
+                return;
 
-                lst->data = p;
-                lst->alloc = new_alloc;
+        if(new_num < lst->alloc)
+                return;
+
+        new_alloc = new_num * 1.5; 
+        new_size = new_alloc * lst->entry_size;
+
+        if(lst->limit > 0) {
+                new_size = PA_MIN(new_size, lst->limit);
+
+                if(new_size == lst->alloc_size)
+                        return;
         }
+
+
+        if(!(p = pa_mem_alloc(lst->memory, lst->data, new_size)))
+                return;
+
+        lst->data = p;
+        lst->alloc = new_alloc;
+        lst->alloc_size = new_size;
 }
 
 PA_LIB s8 paInitList(struct pa_list *lst, struct pa_memory *mem, 
-                s32 size, s16 alloc)
+                s32 size, s16 alloc, s32 lim)
 {
-        s32 tmp;
-
         lst->memory = mem;
         lst->mode = PA_DYNAMIC;
         lst->entry_size = size;
         lst->count = 0;
         lst->alloc = alloc;
+        lst->alloc_size = lst->alloc * lst->entry_size;
+        lst->limit = lim;
 
-        tmp = lst->alloc * lst->entry_size;
-        if(!(lst->data = pa_mem_alloc(lst->memory, NULL, tmp))) {
+        if(!(lst->data = pa_mem_alloc(lst->memory, NULL, lst->alloc_size))) {
                 return -1;
         }
 
@@ -506,7 +519,9 @@ PA_LIB s8 paInitListFixed(struct pa_list *lst, s16 size, void *buf, s32 buf_sz)
         lst->entry_size = size;
         lst->count = 0;
         lst->alloc = buf_sz / size; /* Calculate the number of usable slots */
+        lst->alloc_size = buf_sz;
         lst->data = buf;
+        lst->limit = PA_NOLIM;
 
         paClearList(lst);
         return 0;

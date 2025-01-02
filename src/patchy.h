@@ -558,7 +558,6 @@ PA_API void paApplyListBack(struct pa_list *lst, pa_list_func fnc, void *pass);
  * in a linked list.
  */
 
-
 #define PA_DICT_NEXT_SIZE 2
 #define PA_DICT_HASH_SIZE 2
 #define PA_DICT_KEY_SIZE  32
@@ -717,11 +716,11 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
  *
  *      FLEX
  *
- * The flex-handler is used to process size-calculations made by the user. An
- * example would be "2px + 3pct - 8". The given string will first be tokenized
- * and then converted to postfix-order using Dijkstra's shunting yard algorithm.
- * The final value can then be calculated using references at any time.
- *
+ * The flex-parser is used to parse mathematical expressions for size like for
+ * example "3px * 4 - 5em" and create flex-terms. A single parser is needed to
+ * parse any amount of terms as it's just used for providing the necessary
+ * resources for parsing. The resulting flex-terms are self-contained and can be
+ * processed with the set of references at any time.
  */
 
 #define PA_FLX_READ_BUFFER_SIZE        64
@@ -752,7 +751,7 @@ struct pa_flex_token {
         f32                     value;
 };
 
-struct pa_flex {
+struct pa_flex_parser {
         struct pa_list          tokens;
 
         /* Lists used while processing the flex */
@@ -760,20 +759,22 @@ struct pa_flex {
         struct pa_list          stack;
 };
 
-
-PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok);
+struct pa_flex {
+        struct pa_list          tokens;
+};
 
 /*
  * Initialize the flex-handler using the dynamic funcitionalities of the
  * framework and preallocate the requeste number of tokens.
  *
- * @flx: Pointer to the flex-handler
+ * @fpr: Pointer to the flex-handler
  * @mem: Pointer to the memory-manager
  * @token: The initial number of token to preallocate
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens);
+PA_API s8 paInitFlexParser(struct pa_flex_parser *fpr, struct pa_memory *mem,
+                s16 tokens);
 
 /*
  * Initialize the flex-handler using a static buffer. The flex-handler will then
@@ -783,7 +784,7 @@ PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens);
  * Usually, the token-buffer and swap-buffer have to be the same size and the 
  * stack-buffer need half the memory of the token-buffer.
  *
- * @flx: Pointer to the flex-handler
+ * @fpr: Pointer to the flex-parser
  * @tok_buf: Pointer to the buffer to use for storing tokens
  * @tok_buf_sz: The size of the given buffer
  * @swp_buf: The swap-buffer used when processing the input-string
@@ -793,8 +794,9 @@ PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens);
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
-                void *swp_buf, s32 swp_buf_sz, void *stk_buf, s32 stk_buf_sz);
+PA_API s8 paInitFlexParserFixed(struct pa_flex_parser *fpr, void *tok_buf,
+                s32 tok_buf_sz, void *swp_buf, s32 swp_buf_sz, void *stk_buf,
+                s32 stk_buf_sz);
 
 /*
  * Destroy the struct, reset all attributes and, if configured as dynamic, free
@@ -803,9 +805,9 @@ PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
  * Use this function after use, even if the flex-handler is configured as
  * static.
  *
- * @flx: Pointer to the flex-handler
+ * @fpr: Pointer to the flex-parser
  */
-PA_API void paDestroyFlex(struct pa_flex *flx);
+PA_API void paDestroyFlexParser(struct pa_flex_parser *fpr);
 
 /*
  * IMPORTANT: Using this function will overwrite everything already in the

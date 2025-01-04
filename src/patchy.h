@@ -325,7 +325,6 @@ struct pa_list {
         s16 entry_size; /* The size of a slot in bytes */
 
         s16 count;  /* Number of used slots */
-        s16 inuse;  /* The total size of all used slots in bytes */
         s16 alloc;  /* Number of allocated slots */
 
         s32 alloc_size; /* The size of allocated buffer in bytes */
@@ -716,11 +715,11 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
  *
  *      FLEX
  *
- * The flex-parser is used to parse mathematical expressions for size like for
+ * The flex-helper is used to parse mathematical expressions for size like for
  * example "3px * 4 - 5em" and create flex-terms. A single parser is needed to
- * parse any amount of terms as it's just used for providing the necessary
- * resources for parsing. The resulting flex-terms are self-contained and can be
- * processed with the set of references at any time.
+ * parse and process any amount of terms as it's just used for providing the
+ * necessary resources for parsing and processing. A single flex-term is just a
+ * container for an instance of a size-expression.
  */
 
 #define PA_FLX_READ_BUFFER_SIZE        64
@@ -751,67 +750,127 @@ struct pa_flex_token {
         f32                     value;
 };
 
-struct pa_flex_parser {
+struct pa_flex_helper {
         struct pa_list          tokens;
-
-        /* Lists used while processing the flex */
         struct pa_list          swap;
-        struct pa_list          stack;
+        struct pa_list          values;
 };
 
 struct pa_flex {
+        struct pa_flex_helper   *helper;
         struct pa_list          tokens;
 };
 
+struct pa_flex_reference {
+        s32 relative;      /* Width/Height of the reference */
+        s32 font;          /* Font-Size */
+};
+
 /*
- * Initialize the flex-handler using the dynamic funcitionalities of the
+ * Initialize a flex-helper using the dynamic funcitionalities of the
  * framework and preallocate the requeste number of tokens.
  *
- * @fpr: Pointer to the flex-handler
+ * @hlp: Pointer to the flex-helper
  * @mem: Pointer to the memory-manager
  * @token: The initial number of token to preallocate
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInitFlexParser(struct pa_flex_parser *fpr, struct pa_memory *mem,
+PA_API s8 paInitFlexHelper(struct pa_flex_helper *hlp, struct pa_memory *mem,
                 s16 tokens);
 
 /*
- * Initialize the flex-handler using a static buffer. The flex-handler will then
+ * Initialize a flex-helper using a static buffer. The flex-helper will then
  * calculate the maximum number of tokens that can be stored in the given
- * buffer. Any attempt to push tokens into the flex-handler when it has already
- * reached it's limit will be ignored.
- * Usually, the token-buffer and swap-buffer have to be the same size and the 
- * stack-buffer need half the memory of the token-buffer.
+ * buffer. Any attempt to push tokens into the flex-helper when it has already
+ * reached its limit will be ignored. Usually the token- and swap-buffers should
+ * be the same size!
  *
- * @fpr: Pointer to the flex-parser
+ * @hlp: Pointer to the flex-helper
  * @tok_buf: Pointer to the buffer to use for storing tokens
  * @tok_buf_sz: The size of the given buffer
- * @swp_buf: The swap-buffer used when processing the input-string
+ * @swp_buf: The swap-buffer used when parsing the input-string
  * @swp_buf_sz: The size of the swap-buffer in bytes
- * @stk_buf: The stack used for ordering the tokens
- * @stk_buf_sz: The size of the stack-buffer in bytes
+ * @val_buf: The value-buffer used when processing a flex-term
+ * @val_buf_sz: The size of the value-buffer in bytes
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 paInitFlexParserFixed(struct pa_flex_parser *fpr, void *tok_buf,
-                s32 tok_buf_sz, void *swp_buf, s32 swp_buf_sz, void *stk_buf,
-                s32 stk_buf_sz);
+PA_API s8 paInitFlexHelperFixed(struct pa_flex_helper *hlp, 
+                void *tok_buf, s32 tok_buf_sz, 
+                void *swp_buf, s32 swp_buf_sz, 
+                void *val_buf, s32 val_buf_sz);
 
 /*
- * Destroy the struct, reset all attributes and, if configured as dynamic, free
- * the allocated memory. By doing this you will lose all tokens in the
- * flex-handler.
- * Use this function after use, even if the flex-handler is configured as
- * static.
+ * Destroy a flex-helper, reset all attributes and, if configured as dynamic,
+ * free. the allocated memory. Use this function after use, even if the
+ * flex-helper is configured as static.
  *
- * @fpr: Pointer to the flex-parser
+ * @hlp: Pointer to the flex-helper
  */
-PA_API void paDestroyFlexParser(struct pa_flex_parser *fpr);
+PA_API void paDestroyFlexHelper(struct pa_flex_helper *hlp);
+
+/*
+ * Clear all contents of a flex-helper and reset all internal lists. Everything
+ * in the flex-helper will be lost!
+ *
+ * @hlp: Pointer to the flex-helper
+ */
+PA_API void paClearFlexHelper(struct pa_flex_helper *hlp);
+
+/*
+ * Dynamically initialize an expression into the flex-term using the
+ * flex-helper. The requested number of token slots will be allocated during
+ * initialization and if necessary the flex-term will scale to fit new tokens
+ * beyond its original limits.
+ *
+ * @flx: Pointer to the flex-term
+ * @hlp: Pointer to the flex-helper using for parsing and processing
+ * @mem: Pointer to the memory-manager
+ * @tokens: The number of token-slots to preallocate during initialization
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_flex_helper *hlp,
+                struct pa_memory *mem, s16 tokens);
+
+/*
+ * Statically create a flex-term on top of the given memory buffer. The maximum
+ * number of tokens is calculated from the size of the given buffer. If the
+ * limit has been reached, all new incoming tokens will be ignored.
+ *
+ * @flx: Pointer to the flex-term
+ * @hlp: Pointer to the flex-helper using for parsing and processing
+ * @tok_buf: The token-buffer to store the tokens in
+ * @tok_buf_sz: The size of the token-buffer in bytes
+ *
+ * Returns: 0 on success or -1 if an error occurred
+ */
+PA_API s8 paInitFlexFixed(struct pa_flex *flx, struct pa_flex_helper *hlp,
+                void *tok_buf, s32 tok_buf_sz);
+
+/*
+ * Destroy a flex-term and if allocated dynamically free the allocated memory.
+ * Call this function even if the flex-term has been created with static memory,
+ * but don't forget to free the provided buffer yourself.
+ *
+ * @flx: Pointer to the flex-term
+ */
+PA_API void paDestroyFlex(struct pa_flex *flx);
+
+/*
+ * Clear the internal memory of the flex-term without freeing it. This will lose
+ * all data contained in the flex-term, so use with caution.
+ *
+ * @flx: Pointer to the flex-term
+ */
+PA_API void paClearFlex(struct pa_flex *flx);
 
 /*
  * IMPORTANT: Using this function will overwrite everything already in the
- * flex-handler!
+ * flex-term! Also check that both the parser and the term have both already
+ * been initialized!
+ *
  *
  * Parse an input-term by first tokenizing the input and then converting it to
  * postfix-notation using Dijkstra's shunting yard algortihm.
@@ -820,13 +879,23 @@ PA_API void paDestroyFlexParser(struct pa_flex_parser *fpr);
  * configured as dynamic, the token-list will be scaled according the the
  * incoming number of tokens.
  *
- * @flx: Pointer to the flex-handler
+ * @hlp: Pointer to the the flex-helper
  * @str: A null-terminated string containing the size-expression
+ * @flx: Pointer to the flex-term to parse into
  *
  * Returns: The number of written tokens or -1 if an error occurred
  */
-PA_LIB s16 paParseFlex(struct pa_flex *flx, char *str);
+PA_API s16 paParseFlex(struct pa_flex *flx, char *str);
 
+/*
+ * Process the flex-term using the given set of references.
+ *
+ * @flx: Pointer to the flex
+ * @ref: Pointer to the set of references
+ *
+ * Returns: The resulting value of the expression
+ */
+PA_API s32 paProcessFlex(struct pa_flex *flx, struct pa_flex_reference *ref);
 
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -835,7 +904,6 @@ PA_LIB s16 paParseFlex(struct pa_flex *flx, char *str);
  *
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  */ 
-
 
 /*
  * Contains all resources for the patchy-instance like textures, fonts and

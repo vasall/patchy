@@ -537,6 +537,8 @@ PA_LIB void paDestroyList(struct pa_list *lst)
 PA_LIB void paClearList(struct pa_list *lst)
 {
         pa_mem_set(lst->data, 0, lst->alloc * lst->entry_size);
+
+        lst->count = 0;
 }
 
 PA_LIB s16 paPushList(struct pa_list *lst, void *src, s16 num)
@@ -1245,7 +1247,7 @@ PA_INTERN s8 flx_is_operator(char c)
  *
  * Returns: 0 on success or -1 if an error occurred
  */
-PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
+PA_INTERN s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
 {
         char buf[64];
         char *c;
@@ -1320,7 +1322,7 @@ PA_API s8 flx_parse_token(u8 opt, char *s, struct pa_flex_token *tok)
  *   2: Read operator(ie. + - / *)
  *
  */
-PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
+PA_INTERN void flx_tokenize(struct pa_flex_helper *hlp, char *str)
 {
         struct pa_flex_token tok;
 
@@ -1365,7 +1367,7 @@ PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
                                 read = 3;
                                 buf_tail = 0;
                         }
-                        else if(read != 3) {
+                        else {
                                 fin = read;
                                 read = 3;
                         }
@@ -1384,8 +1386,8 @@ PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
                                 /* Invalid expression */
                                 return;
                         }
-
-                        if(paPushList(&flx->tokens, &tok, 1) < 0) {
+                        
+                        if(paPushList(&hlp->tokens, &tok, 1) < 0) {
                                 /* Failed to add token to list */
                                 return;
                         }
@@ -1399,7 +1401,6 @@ PA_INTERN void flx_tokenize(struct pa_flex *flx, char *str)
                         buf[buf_tail] = *c;
                         buf_tail++;
                 }
-
         } while(*(c++));
 }
 
@@ -1414,11 +1415,11 @@ PA_INTERN s8 flx_operator_prio(struct pa_flex_token *tok)
         return 0x00;
 }
 
-PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
+PA_INTERN s8 flx_shunting_yard(struct pa_flex_helper *hlp, struct pa_flex *flx)
 {
         struct pa_list *tokens;
-        struct pa_list *swap;
         struct pa_list *operators;
+        struct pa_list *output;
 
         struct pa_flex_token tok;
         struct pa_flex_token tok_swp;
@@ -1428,9 +1429,9 @@ PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
         u8 opensign = 0; /* 0: positive, 1: negative */
 
         /* Assign shortcuts for the lists */
-        tokens = &flx->tokens;
-        swap = &flx->swap;
-        operators = &flx->stack;
+        tokens = &hlp->tokens;
+        operators = &hlp->swap;
+        output = &flx->tokens;
 
         while(paShiftList(tokens, &tok, 1)) {
                 /* Push operand to output */
@@ -1441,11 +1442,11 @@ PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
                                 opensign = 0;
                         }
 
-                        paPushList(swap, &tok, 1);
+                        paPushList(output, &tok, 1);
                 }
                 /* Push operator into operator-stack */
                 else if(tok.code >= 0x03 && tok.code <= 0x06) {
-                        if(swap->count < 1) {
+                        if(output->count < 1) {
                                 if(tok.code != 0x04 && tok.code != 0x05) {
                                         /* Missing operand */
                                         goto err_return;
@@ -1465,12 +1466,12 @@ PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
                                 prio[0] = flx_operator_prio(&tok);
                                 prio[1] = flx_operator_prio(&tok_swp);
 
-                                if(tok.code == 1 || prio[0] > prio[1]) {
+                                if(tok.code == 0x01 || prio[0] > prio[1]) {
                                         paPushList(operators, &tok_swp, 1);
                                         break;
                                 }
 
-                                paPushList(swap, &tok_swp, 1);
+                                paPushList(output, &tok_swp, 1);
                         }
 
                         paPushList(operators, &tok, 1);
@@ -1492,7 +1493,7 @@ PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
                                         check = 1;
                                         break;
                                 }
-                                paPushList(swap, &tok_swp, 1);
+                                paPushList(output, &tok_swp, 1);
                         }
                         if(!check) {
                                 /* Missing opening bracket */
@@ -1501,72 +1502,105 @@ PA_INTERN s8 flx_shunting_yard(struct pa_flex *flx)
                 }
         }
 
-        /* Copy over all operators to the swap-list */
+        /* Copy over all operators to the output and then we're done :) */
         while(paPopList(operators, &tok, 1))
-                paPushList(swap, &tok, 1);
+                paPushList(output, &tok, 1);
 
-        /* Copy swap-list back to token-list */
-        paCopyList(tokens, swap, PA_START, PA_START, PA_ALL);       
-
+        /* Now just cleanup the parser and return */
+        paClearFlexHelper(hlp);
         return 0;
 
 err_return:
+        paClearFlexHelper(hlp);
+        paClearFlex(flx);
         return -1;
 }
 
-PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_memory *mem, s16 tokens)
+PA_API s8 paInitFlexHelper(struct pa_flex_helper *hlp, struct pa_memory *mem,
+                s16 tokens)
 {
         s32 toksize = sizeof(struct pa_flex_token);
 
         /* Create the swap-list */
-        if(paInitList(&flx->swap, mem, toksize, tokens) < 0)
+        if(paInitList(&hlp->swap, mem, toksize, tokens, PA_NOLIM) < 0)
                 return -1;
 
-        /* Create the stack-list */
-        if(paInitList(&flx->stack, mem, toksize, 20) < 0)
+        /* Create the value-list */
+        if(paInitList(&hlp->values, mem, sizeof(f32), tokens, PA_NOLIM) < 0)
                 goto err_destroy_swp;
 
         /* Create the token-list */
-        if(paInitList(&flx->tokens, mem, toksize, tokens) < 0)
-                goto err_destroy_stk;
+        if(paInitList(&hlp->tokens, mem, toksize, tokens, PA_NOLIM) < 0)
+                goto err_destroy_val;
 
         return 0;
 
-err_destroy_stk:
-        paDestroyList(&flx->stack);
+err_destroy_val:
+        paDestroyList(&hlp->values);
 
 err_destroy_swp:
-        paDestroyList(&flx->swap);
+        paDestroyList(&hlp->swap);
 
         return -1;
 }
 
-PA_API s8 paInitFlexFixed(struct pa_flex *flx, void *tok_buf, s32 tok_buf_sz,
-                void *swp_buf, s32 swp_buf_sz, void *stk_buf, s32 stk_buf_sz)
+PA_API s8 paInitFlexHelperFixed(struct pa_flex_helper *hlp,
+                void *tok_buf, s32 tok_buf_sz, 
+                void *swp_buf, s32 swp_buf_sz,
+                void *val_buf, s32 val_buf_sz)
 {
         s32 toksize = sizeof(struct pa_flex_token);
 
         /* Create the swap-list */
-        if(paInitListFixed(&flx->swap, toksize, swp_buf, swp_buf_sz) < 0)
+        if(paInitListFixed(&hlp->swap, toksize, swp_buf, swp_buf_sz) < 0)
                 return -1;
 
-        /* Create the stack-list */
-        if(paInitListFixed(&flx->stack, toksize, stk_buf, stk_buf_sz) < 0)
+        if(paInitListFixed(&hlp->values, sizeof(f32), val_buf, val_buf_sz) < 0)
                 goto err_destroy_swp;
 
         /* Create the token-list */
-        if(paInitListFixed(&flx->tokens, toksize, tok_buf, tok_buf_sz) < 0)
-                goto err_destroy_stk;
+        if(paInitListFixed(&hlp->tokens, toksize, tok_buf, tok_buf_sz) < 0)
+                goto err_destroy_val;
 
         return 0;
 
-err_destroy_stk:
-        paDestroyList(&flx->stack);
+err_destroy_val:
+        paDestroyList(&hlp->values);
 
 err_destroy_swp:
-        paDestroyList(&flx->swap);
+        paDestroyList(&hlp->swap);
 
         return -1;
+}
+
+PA_API void paDestroyFlexHelper(struct pa_flex_helper *hlp)
+{
+        paDestroyList(&hlp->swap);
+        paDestroyList(&hlp->values);
+        paDestroyList(&hlp->tokens);
+}
+
+PA_API void paClearFlexHelper(struct pa_flex_helper *hlp)
+{
+        paClearList(&hlp->tokens);
+        paClearList(&hlp->swap);
+        paClearList(&hlp->values);
+}
+
+PA_API s8 paInitFlex(struct pa_flex *flx, struct pa_flex_helper *hlp,
+                struct pa_memory *mem, s16 tokens)
+{
+        s32 toksize = sizeof(struct pa_flex_token);
+        flx->helper = hlp;
+        return paInitList(&flx->tokens, mem, toksize, tokens, PA_NOLIM);
+}
+
+PA_API s8 paInitFlexFixed(struct pa_flex *flx, struct pa_flex_helper *hlp,
+                void *tok_buf, s32 tok_buf_sz)
+{
+        s32 toksize = sizeof(struct pa_flex_token);
+        flx->helper = hlp;
+        return paInitListFixed(&flx->tokens, toksize, tok_buf, tok_buf_sz);
 }
 
 PA_API void paDestroyFlex(struct pa_flex *flx)
@@ -1574,7 +1608,72 @@ PA_API void paDestroyFlex(struct pa_flex *flx)
         paDestroyList(&flx->tokens);
 }
 
-PA_LIB s16 paParseFlex(struct pa_flex *flx, char *str)
+PA_API void paClearFlex(struct pa_flex *flx)
 {
+        paClearList(&flx->tokens);
+}
 
+PA_API s16 paParseFlex(struct pa_flex *flx, char *str)
+{
+        /* Firs we tokenize the input and write the tokens to the parser */
+        flx_tokenize(flx->helper, str);
+
+        flx_shunting_yard(flx->helper, flx);
+
+        return 0;
+}
+
+PA_API s32 paProcessFlex(struct pa_flex *flx, struct pa_flex_reference *ref)
+{
+        struct pa_flex_token tok;
+        struct pa_list *values;
+        f32 value;
+        f32 opd[2];
+        u16 i = 0;
+
+        values = &flx->helper->values;
+
+        while(paPeekList(&flx->tokens, &tok, i++, 1)) {
+                /*  Handle operands  */
+                if(tok.code > 0x06) {
+                        switch(tok.code) {
+                                case 0x11: 
+                                        value = tok.value;
+                                        break;
+                                case 0x12: 
+                                        value = tok.value;
+                                        break;
+                                case 0x13: 
+                                        value = tok.value * ref->relative;
+                                        break;
+                                case 0x14:
+                                        value = tok.value * ref->font;
+                                        break;
+                                default: 
+                                        value = tok.value;
+                                        break;
+                        }
+
+                        paPushList(values, &value, 1);
+                }
+                /* Handle operators */
+                else {
+                        paPopList(values, &opd[0], 1);
+                        paPopList(values, &opd[1], 1);
+
+                        switch(tok.code) {
+                                case 0x03: value = opd[1] * opd[0]; break;
+                                case 0x04: value = opd[1] + opd[0]; break;
+                                case 0x05: value = opd[1] - opd[0]; break;
+                                case 0x06: value = opd[1] / opd[0]; break;
+                        }
+
+                        paPushList(values, &value, 1);
+                }
+        }
+
+        paPopList(values, &value, 1);
+        paClearList(values);
+
+        return (s32)value;
 }

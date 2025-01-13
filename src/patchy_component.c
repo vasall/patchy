@@ -839,18 +839,16 @@ PA_INTERN u16 dct_hash(char *key)
 PA_INTERN s16 dct_find_open(struct pa_dictionary *dct)
 {
         s16 i;
-        s32 entry_sz = PA_DICT_HEAD_SIZE + dct->value_size;
 
         for(i = 0; i < dct->alloc; i++) {
-                if(*(s16 *)(dct->buffer + i * entry_sz) == -1)
+                if(*(s16 *)(dct->buffer + i * tbl->entry_size) == -1)
                         return i;
         }
 
         return -1;
 }
 
-PA_INTERN u8 *dct_next_bucket(struct pa_dictionary *dct, s16 bucket,
-                u8 *ptr)
+PA_INTERN u8 *dct_next_bucket(struct pa_dictionary *dct, s16 bucket, u8 *ptr)
 {
         s16 next_idx = -1;
 
@@ -1172,6 +1170,382 @@ PA_API void *paIterateDictionaryBucket(struct pa_dictionary *dct, s16 bucket,
                 return NULL;
 
         if(!(ptr = dct_next_bucket(dct, bucket, ptr)))
+                return NULL;
+
+        /* Return the data for the current entry */
+        if(ent) {
+                /* Copy over the key */
+                tmp = (char *)ptr + PA_DICT_NEXT_SIZE + PA_DICT_HASH_SIZE;
+                pa_strcpy(ent->key, tmp);
+
+                /* Set the pointer for the data */
+                ent->value = tmp + PA_DICT_KEY_SIZE;
+        }
+
+        return ptr;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ *
+ *      TABLE
+ *
+ */
+
+/* Source: https://stackoverflow.com/a/21001712 */
+PA_INTERN u16 tbl_hash(u8 *key, s32 key_sz)
+{
+        u32 byte;
+        u32 crc;
+        u32 mask;
+        s32 i = 0;
+        s32 j;
+
+        crc = 0xFFFFFFFF;
+        while(i < key_sz && key[i] != 0) {
+                byte = key[i];
+                crc = crc ^ byte;
+                for (j = 7; j >= 0; j--) {
+                        mask = -(crc & 1);
+                        crc = (crc >> 1) ^ (0xEDB88320 & mask);
+                }
+                i++;
+        }
+        return (~crc) % 0xFFFF;
+}
+
+PA_INTERN s16 tbl_find_open(struct pa_table *tbl)
+{
+        s16 i;
+
+        for(i = 0; i < tbl->alloc; i++) {
+                if(*(s16 *)(tbl->buffer + i * tbl->entry_size) == -1)
+                        return i;
+        }
+
+        return -1;
+}
+
+PA_INTERN u8 *tbl_next_bucket(struct pa_table *tbl, s16 bucket, u8 *ptr)
+{
+        s16 next_idx = -1;
+
+        if(tbl->buckets[bucket] < 0)
+                return NULL;
+
+        /*
+         * On the first call ptr will be NULL, so we have to find the first
+         * entry in the table.
+         */
+        if(!ptr) {
+                return tbl->buffer + (tbl->buckets[bucket] * tbl->entry_size);
+        }
+
+        /*
+         * Otherwise we have to get a pointer to the next entry.
+         */
+        if((next_idx = *(s16 *)ptr) < 0) {
+                return NULL;
+        }
+
+        /* Return a pointer to the entry */
+        return tbl->buffer + (next_idx * tbl->entry_size);
+}
+
+PA_INTERN u8 *tbl_next(struct pa_table *tbl, u8 *ptr)
+{
+        s16 idx = -1;
+        s16 next_idx = -1;
+        s16 bucket_num;
+
+        /*
+         * On the first call ptr will be NULL, so we have to find the first
+         * entry in the table.
+         */
+        if(!ptr) {
+                bucket_num = 0;
+                while(bucket_num < PA_DICT_BUCKETS) {
+                        if(tbl->buckets[bucket_num] >= 0) {
+                                idx = tbl->buckets[bucket_num];
+                                ptr = tbl->buffer + (idx * tbl->entry_size);
+                                break;
+                        }
+                        bucket_num++;
+                }
+
+                return ptr;
+        }
+
+        /*
+         * Otherwise we have to get a pointer to the next entry.
+         */
+        next_idx = *(s16 *)ptr;
+        if(next_idx <= -2) {
+                bucket_num = (-1 * next_idx) - 2 + 1;
+                while(bucket_num < PA_DICT_BUCKETS) {
+                        if(tbl->buckets[bucket_num] >= 0) {
+                                next_idx = tbl->buckets[bucket_num];
+                                break;
+                        }
+                        bucket_num++;
+                }
+
+                /* No more entries left in the table */
+                if(next_idx <= -2)
+                        return NULL;
+        }
+
+        /* Return a pointer to the entry */
+        return tbl->buffer + (next_idx * tbl->entry_size);
+}
+
+PA_INTERN u8 *tbl_find_key(struct pa_table *tbl, u8 *key, u8 **prev,
+                s16 *bucket_out)
+{
+        u16 hash = tbl_hash(key);
+        s16 bucket = hash % PA_DICT_BUCKETS;
+        u8 *ptr = NULL;
+        s16 off = PA_DICT_NEXT_SIZE + PA_DICT_HASH_SIZE;
+
+        if(tbl->buckets[bucket] < 0)
+                return NULL;
+
+        if(bucket_out) *bucket_out = bucket;
+
+        if(prev) *prev = NULL;
+        while((ptr = tbl_next_bucket(tbl, bucket, ptr))) {
+                /* Compare the hashes */
+                if(hash == *(u16 *)(ptr + PA_DICT_NEXT_SIZE)) {
+                        if(pa_memcmp(key, ptr + off, tbl->key_size)) {
+                                return ptr;
+                        }
+                }
+                if(prev) *prev = ptr;
+        }
+
+        return NULL;
+}
+
+PA_API s8 paInitTable(struct pa_table *tbl, struct pa_memory *mem,
+                s32 key_sz, s32 value_sz, s16 alloc)
+{
+        s32 alloc_sz;
+        s16 i;
+
+        tbl->memory = mem;
+        tbl->mode = PA_DYNAMIC;
+
+        tbl->key_size = key_sz;
+        tbl->value_size = value_sz;
+        tbl->entry_size = PA_DICT_HEAD_SIZE + key_sz + value_sz;
+        tbl->number = 0;
+        tbl->alloc = alloc;
+
+        alloc_sz = tbl->entry_size * tbl->alloc;
+        if(!(tbl->buffer = pa_mem_alloc(tbl->memory, NULL, alloc_sz))) {
+                return -1;
+        }
+
+        /* Reset all memory slots in the buffer */
+        for(i = 0; i < tbl->alloc; i++) {
+                *(s16 *)(tbl->buffer + i * tbl->entry_size) = -1;
+        }
+
+        /* Reset all buckets */
+        for(i = 0; i < PA_DICT_BUCKETS; i++) {
+                tbl->buckets[i] = -1;
+        }
+
+        return 0;
+}
+
+PA_API s8 paInitTableFixed(struct pa_table *tbl, void *buffer,
+                s32 buf_sz, s32 value_sz)
+{
+        s16 i;
+
+        tbl->memory = NULL;
+        tbl->mode = PA_FIXED;
+
+        tbl->value_size = value_sz;
+        tbl->entry_size = PA_DICT_HEAD_SIZE + value_sz;
+        tbl->number = 0;
+        tbl->buffer = buffer;
+
+        tbl->alloc = buf_sz / tbl->entry_size;
+
+        /* Reset all entry-slots in the buffer */
+        for(i = 0; i < tbl->alloc; i++) {
+                *(s16 *)(tbl->buffer + i * tbl->entry_size) = -1;
+        }
+
+        /* Reset all buckets */
+        for(i = 0; i < PA_DICT_BUCKETS; i++) {
+                tbl->buckets[i] = -1;
+        }
+
+        return 0;
+}
+
+PA_API void paDestroyTable(struct pa_table *tbl)
+{
+        if(tbl->mode == PA_DYNAMIC) {
+                pa_mem_free(tbl->memory, tbl->buffer);
+        }
+
+        tbl->memory = 0;
+        tbl->mode = PA_MEM_UDEF;
+
+        tbl->value_size = 0;
+        tbl->entry_size = 0;
+        tbl->number = 0;
+        tbl->alloc = 0;
+        tbl->buffer = 0;
+}
+
+PA_API s8 paSetTable(struct pa_table *tbl, char *key, void *value)
+{
+        s16 slot;
+        u16 hash;
+        s16 bucket;
+        u8 *ptr;
+        s32 tmp;
+        s16 next_idx;
+
+        /* Validate the input parameters */
+        if(pa_strlen(key) > 32)
+                return -1;
+
+        /*
+         * If there is already an entry with the keyword in the table, we
+         * can just overwrite it's value and return.
+         */
+        if((ptr = tbl_find_key(tbl, key, NULL, NULL))) {
+                /* Copy over the content */
+                pa_mem_copy(ptr + PA_DICT_HEAD_SIZE, value, tbl->value_size);
+                return 0;
+
+        }
+
+        /* Get an open slot in the table-buffer */
+        if((slot = tbl_find_open(tbl)) < 0)
+                return -1;
+
+        /* Hash the key and determine the bucket  */
+        hash = tbl_hash(key); 
+        bucket = hash % PA_DICT_BUCKETS;
+
+        /* 
+         * Write the copy over the data to the table-buffer.
+         */
+
+        /* Set the next index */
+        ptr = tbl->buffer + (slot * tbl->entry_size);
+        *(s16 *)ptr = -(bucket + 2);
+        ptr += PA_DICT_NEXT_SIZE;
+
+        /* Copy the hash */
+        *(u16 *)ptr = hash;
+        ptr += PA_DICT_HASH_SIZE;
+
+        /* Copy over the keyword */
+        pa_strcpy((char *)ptr, key);
+        ptr += PA_DICT_KEY_SIZE;
+
+        /* Copy over the content */
+        pa_mem_copy(ptr, value, tbl->value_size);
+
+        /*
+         * Attach the entry to the bucket.
+         */
+        if(tbl->buckets[bucket] < 0) {
+                tbl->buckets[bucket] = slot;
+        }
+        else {
+                tmp = tbl->buckets[bucket] * tbl->entry_size;
+                ptr = tbl->buffer + tmp;
+                while((next_idx = *(s16 *)ptr) >= 0) {
+                        ptr = tbl->buffer + next_idx * tbl->entry_size;
+                }
+                *(s16 *)ptr = slot;
+        }
+
+        tbl->number++;
+        return 0;
+}
+
+PA_API s8 paGetTable(struct pa_table *tbl, char *key, void *out)
+{
+        u8 *ptr;
+
+        if(!(ptr = tbl_find_key(tbl, key, NULL, NULL)))
+                return 0;
+
+        pa_mem_copy(out, ptr + PA_DICT_HEAD_SIZE, tbl->entry_size);
+        return 1;
+}
+
+PA_API void paRemoveTable(struct pa_table *tbl, char *key)
+{
+        s16 bucket;
+        u8 *ptr;
+        u8 *prev;
+        s16 next_idx;
+
+        if((ptr = tbl_find_key(tbl, key, &prev, &bucket))) {
+                next_idx = *(s16 *)ptr;
+
+                if(!prev && next_idx < 0) {
+                        tbl->buckets[bucket] = -1;
+                }
+                else if(!prev && next_idx >= 0) {
+                        tbl->buckets[bucket] = next_idx;
+                }
+                else if(prev) {
+                        *(s16 *)prev = *(s16 *)ptr;
+                }
+
+                *(s16 *)ptr = -1;
+                tbl->number--;
+        }
+}
+
+PA_API void *paIterateTable(struct pa_table *tbl, void *ptr, 
+                struct pa_table_entry *ent)
+{
+        char *tmp;
+
+        /* Check if the table is empty */
+        if(tbl->number < 1)
+                return NULL;
+
+        /* Go to the next entry in the table */
+        if(!(ptr = tbl_next(tbl, ptr)))
+                return NULL;
+
+        /* Return the entry-data for the current entry */
+        if(ent) {
+                /* Copy over the key */
+                tmp = (char *)ptr + PA_DICT_NEXT_SIZE + PA_DICT_HASH_SIZE;
+                pa_strcpy(ent->key, tmp);
+
+                /* Set the pointer for the data */
+                ent->value = tmp + PA_DICT_KEY_SIZE;
+        }
+
+        return ptr;
+}
+
+PA_API void *paIterateTableBucket(struct pa_table *tbl, s16 bucket,
+                void *ptr, struct pa_table_entry *ent)
+{
+        char *tmp;
+
+        /* Check if the table is empty */
+        if(tbl->number < 1)
+                return NULL;
+
+        if(!(ptr = tbl_next_bucket(tbl, bucket, ptr)))
                 return NULL;
 
         /* Return the data for the current entry */

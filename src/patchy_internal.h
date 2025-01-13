@@ -82,6 +82,16 @@ PA_LIB void pa_mem_copy(void *dst, void *src, s32 size);
  */
 PA_LIB void pa_mem_move(void *dst, void *src, s32 size);
 
+/*
+ * Compare two memory-buffers byte-by-byte.
+ *
+ * @ptr1: Pointer for the first memory-buffer
+ * @ptr2: Pointer to the second memory-buffer
+ *
+ * Returns: 1 if the buffers are equal and 0 if not
+ */
+PA_LIB s8 pa_mem_compare(void *ptr1, void *ptr2, s32 size);
+
 /* 
  * -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
  *

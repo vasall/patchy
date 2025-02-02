@@ -52,7 +52,7 @@ PA_LIB void pa_mem_move(void *dst, void *src, s32 size)
         memmove(dst, src, size);
 }
 
-PA_LIB void pa_mem_compare(void *ptr1, void *ptr2, s32 size)
+PA_LIB s8 pa_mem_compare(void *ptr1, void *ptr2, s32 size)
 {
         if(memcmp(ptr1, ptr2, size) == 0)
                 return 1;

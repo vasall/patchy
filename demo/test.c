@@ -1,5 +1,5 @@
-#include "patchy.h"
-#include "patchy_internal.h"
+#define PA_IMPLEMENTATION
+#include "../patchy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
